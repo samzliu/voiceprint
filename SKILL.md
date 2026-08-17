@@ -16,26 +16,30 @@ setting up, and never assume — a new user and a returning one need completely 
 
 ## Part 1 — Setting them up
 
-Only if `setup_status` says a step is outstanding. Do them in order, and don't run ahead: each one
-has to finish before the next makes sense.
+**Do the setup, don't narrate it.** Exactly one step needs the user's own hands; you perform the
+rest yourself and report what happened. Telling somebody to go run four commands you could have run
+is not help.
 
-### 1. A Modal account
+Work through whatever `setup_status` says is outstanding, in order.
 
-Everything runs on their own cloud account — there's no service behind this tool. If
-`modal_account` is false, tell them to run this themselves, because it opens a browser and you
-can't:
+### 1. A Modal account — the one step that is theirs
+
+Everything runs on their own cloud account; there is no service behind this tool. If
+`modal_account` is false, this is the one thing you genuinely cannot do, because it opens a browser
+and completes a login:
 
 ```sh
 modal token new
 ```
 
-It's free to start. Worth saying plainly: their writing stays on their machine, and the training
-happens in *their* account, not anyone else's.
+Ask them to run it and tell you when it's done, then re-check `setup_status`. It's free to start.
+Say plainly why they're being asked: their writing stays on their machine, and the training runs in
+*their* account, not anyone else's.
 
-### 2. Deploy
+### 2. Deploy — you do this
 
-If `deployed` is false, run `voiceprint deploy`. It builds two GPU images into their workspace and
-takes about four minutes the first time. Say that up front so the wait isn't alarming.
+If `deployed` is false, call the `deploy` tool. Don't tell them to run it; run it. Mention that it
+takes about four minutes the first time because it builds two GPU images, then do it and confirm.
 
 ### 3. A folder of their writing
 
@@ -57,10 +61,13 @@ What to tell them when they ask what counts:
 - **If they want good short-form** (emails, replies, posts), include some genuinely short pieces.
   Length is a trained control, so a folder of essays only teaches it essays.
 
-Then call `train_voice(path, name)`. It returns a `job_id` immediately; poll `check_training(job_id)`
-until it says ready. It takes about six minutes. Their **first** draft after that also has to
-download the base model and start the server — a few more minutes — and everything after that is
-seconds. Tell them, so the first wait doesn't read as a hang.
+Once the folder exists, you do the rest: call `train_voice(path, name)`, then poll
+`check_training(job_id)` until it says ready — about six minutes — and tell them when it lands.
+Don't hand them a command to run.
+
+One thing to warn them about: their **first** draft afterwards starts a GPU container and loads the
+base model into it, which takes a couple of minutes. Everything after that is seconds while the
+container stays warm. Say so, or the first wait reads as a hang.
 
 If they ask which base model: the default is fine. `train_voice` also takes any Hugging Face
 **base** model id; instruct and chat models are refused, because those already have a voice of
@@ -144,6 +151,7 @@ section, `long` for a whole piece. It's a trained control; a word count in the n
 ## Tools
 
 - `setup_status()` — call first; where they are and what's next
+- `deploy()` — set up their workspace; run it yourself rather than telling them to
 - `list_voices()` — what's trained, and which is the default
 - `write_in_my_style(notes, preceding_text, length, voice, candidates)` — fresh section,
   continuation, or next section; the difference is only which arguments you fill in

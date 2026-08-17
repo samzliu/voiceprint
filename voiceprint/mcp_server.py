@@ -69,6 +69,21 @@ def setup_status() -> dict:
 
 
 @server.tool()
+def deploy() -> dict:
+    """Deploy the GPU app into the user's Modal workspace. Just run it.
+
+    This is a setup step you perform for them, not one you read out. It takes
+    about four minutes the first time (it builds two GPU images) and is a no-op
+    afterwards, so say what you're doing and then do it. Requires a Modal
+    account to already exist — check setup_status first.
+    """
+    code = remote.deploy()
+    if code != 0:
+        raise RuntimeError(f"`voiceprint deploy` failed with exit code {code}")
+    return {"deployed": True}
+
+
+@server.tool()
 def list_voices() -> list[dict]:
     """List the voices this user has trained. Call this first if no voice is named."""
     return [

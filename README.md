@@ -61,10 +61,19 @@ voiceprint check      # confirms the account, the deployment, and your voices
 `deploy` is a real step, not ceremony: it's what keeps a container warm between calls, so your
 second draft doesn't wait on a cold 14B load.
 
-**What the first run actually costs you in time.** The image build is ~4 minutes. Training is ~6
-minutes on an A100. Your *first* `write` also downloads the base model and starts vLLM, which is
-another several minutes; every write after that, while the container is warm, is seconds. Budget
-about 20 minutes from clone to first draft, not 3.
+**What the first run actually costs you in time**, measured rather than estimated:
+
+| | |
+|---|---|
+| `voiceprint deploy` | ~4 min, once ever (builds two GPU images) |
+| `voiceprint train` | ~6 min on an A100 |
+| first `write` after idle | **364 s** — container start, then 28 GB of weights into the GPU |
+| every `write` after that | **3 s** |
+
+Training downloads the base model into a volume that serving shares, so writing never re-downloads
+it — the cold start is the engine coming up, not a download. Containers sleep after 10 minutes
+idle, so the first draft of a session pays it and the rest of the session doesn't. Budget about 15
+minutes from clone to first draft.
 
 ## Train
 
@@ -196,7 +205,7 @@ content.
 |---|---|
 | Train a voice | ~6 minutes of one A100, once per voice |
 | Store an adapter | ~270 MB in your Modal volume |
-| A draft | a few GPU-seconds warm; the first one after idle reloads the base model |
+| A draft | 3 s warm; 364 s if the container had gone to sleep |
 
 Containers shut down after 10 minutes idle, so a writing session is cheap and leaving it alone
 costs nothing. Nothing is charged by us — you're paying Modal for your own GPU time.
