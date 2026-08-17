@@ -26,6 +26,10 @@ class NotABaseModel(Exception):
     pass
 
 
+class NeedsToken(Exception):
+    pass
+
+
 def resolve(name: str) -> str:
     """A preset key or a Hugging Face repo id -> a repo id."""
     model = MODEL_PRESETS.get(name, name)
@@ -56,6 +60,35 @@ def reject_instruct(model: str) -> None:
         )
 
 
+def check_available(model: str) -> None:
+    """Refuse a gated model with no token, here rather than in a GPU log.
+
+    Llama and Gemma need a Hugging Face token and an accepted licence. Without
+    this the user waits out a container start and a model download to be told
+    401 by a log line they have to go hunting for.
+    """
+    import json
+    import os
+    import urllib.error
+    import urllib.request
+
+    if os.environ.get("HF_TOKEN"):
+        return
+    try:
+        with urllib.request.urlopen(
+            f"https://huggingface.co/api/models/{model}", timeout=10
+        ) as response:
+            gated = json.load(response).get("gated")
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return  # can't reach the hub to check; the training job will report the truth
+    if gated:
+        raise NeedsToken(
+            f"{model} is gated on Hugging Face. Accept its licence on the model page, then:\n"
+            f"  export HF_TOKEN=hf_...\n"
+            f"  voiceprint deploy        (the token is picked up at deploy time)"
+        )
+
+
 def label(model: str) -> str:
     """The short name for a model id, for listings."""
     for preset, full in MODEL_PRESETS.items():
@@ -64,4 +97,13 @@ def label(model: str) -> str:
     return model
 
 
-__all__ = ["DEFAULT_MODEL", "MODEL_PRESETS", "NotABaseModel", "label", "reject_instruct", "resolve"]
+__all__ = [
+    "DEFAULT_MODEL",
+    "MODEL_PRESETS",
+    "NeedsToken",
+    "NotABaseModel",
+    "check_available",
+    "label",
+    "reject_instruct",
+    "resolve",
+]

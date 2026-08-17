@@ -64,8 +64,15 @@ serve_image = (
 
 VOLUMES = {"/voices": voices_volume, "/cache": cache_volume}
 
+# Gated models (Llama, Gemma) need a Hugging Face token. Read from the local
+# environment at deploy time, so `export HF_TOKEN=...` before `voiceprint deploy`
+# is the whole setup. Empty is fine — open models don't look at it.
+HF_SECRET = modal.Secret.from_dict({"HF_TOKEN": os.environ.get("HF_TOKEN", "")})
 
-@app.function(image=train_image, gpu=TRAIN_GPU, volumes=VOLUMES, timeout=3600)
+
+@app.function(
+    image=train_image, gpu=TRAIN_GPU, volumes=VOLUMES, secrets=[HF_SECRET], timeout=3600
+)
 def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     """Chunks in, adapter in the volume out.
 
@@ -216,7 +223,10 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     }
 
 
-@app.cls(image=serve_image, gpu=SERVE_GPU, volumes=VOLUMES, scaledown_window=600, timeout=900)
+@app.cls(
+    image=serve_image, gpu=SERVE_GPU, volumes=VOLUMES, secrets=[HF_SECRET],
+    scaledown_window=600, timeout=900,
+)
 class Writer:
     """One resident base model, adapters swapped per request.
 

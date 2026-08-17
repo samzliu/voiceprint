@@ -72,6 +72,7 @@ def start(chunks: list[corpus.Chunk], name: str, model: str = models.DEFAULT_MOD
     """
     training, holdout = split_holdout(chunks)
     resolved = models.resolve(model)
+    models.check_available(resolved)
     call = remote.trainer().spawn(name=name, chunks=[asdict(c) for c in training], model=resolved)
 
     PENDING_DIR.mkdir(parents=True, exist_ok=True)

@@ -41,3 +41,25 @@ def test_base_versions_of_those_are_fine():
 def test_label_shortens_known_models_only():
     assert models.label("Qwen/Qwen2.5-14B") == "qwen14b"
     assert models.label("someone/Their-Base-7B") == "someone/Their-Base-7B"
+
+
+def test_gated_models_are_refused_before_spending_gpu_time(monkeypatch):
+    """A 401 buried in a container log after a four-minute wait is a bad way to
+    learn you needed a token."""
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    import urllib.error
+
+    def unreachable(*_a, **_k):
+        raise urllib.error.URLError("offline")
+
+    monkeypatch.setattr("urllib.request.urlopen", unreachable)
+    # an unreachable hub must not block the user; the training job reports the truth
+    models.check_available("Qwen/Qwen2.5-14B")
+
+
+def test_a_token_skips_the_gate_check(monkeypatch):
+    monkeypatch.setenv("HF_TOKEN", "hf_x")
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call"))
+    )
+    models.check_available("meta-llama/Llama-3.1-8B")

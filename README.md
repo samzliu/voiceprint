@@ -138,9 +138,14 @@ voiceprint train ~/writing --name me --model someone/Their-Base-7B
 | `qwen14b` | Qwen/Qwen2.5-14B | default; the size the technique was validated at |
 | `qwen7b` | Qwen/Qwen2.5-7B | measured at 0.541 style / 1.000 novelty vs 14b's 0.548 — half the size, no real loss |
 | `qwen3b` | Qwen/Qwen2.5-3B | cheapest |
-| `llama8b` | meta-llama/Llama-3.1-8B | |
+| `llama8b` | meta-llama/Llama-3.1-8B | gated — needs `HF_TOKEN` |
 | `mistral7b` | mistralai/Mistral-7B-v0.3 | |
-| `gemma9b` | google/gemma-2-9b | |
+| `gemma9b` | google/gemma-2-9b | gated — needs `HF_TOKEN` |
+
+Gated models (Llama, Gemma) need a Hugging Face token: accept the licence on the model page, then
+`export HF_TOKEN=hf_... && voiceprint deploy`. The token is read from your environment at deploy
+time. voiceprint refuses a gated model up front rather than letting you discover it as a 401 in a
+GPU log four minutes later.
 
 Each base model gets its own warm container, so voices on the same base share one loaded model and
 cost you nothing extra. **Instruct and chat models are refused** — they already have a voice, and it
