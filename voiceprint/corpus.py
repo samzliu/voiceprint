@@ -111,21 +111,37 @@ def _split_document(prose: str, target_words: int) -> list[str]:
     return out
 
 
-def check_size(chunks: list[Chunk]) -> str | None:
+def check_size(chunks: list[Chunk], documents: list[tuple[str, str]] | None = None) -> str | None:
     """Raise if the corpus cannot work; return a warning string if it is thin.
 
     Below ~300 words there is nothing to learn a voice from, and training anyway
     would burn the user's money to produce a model that sounds like nobody.
+
+    When it refuses, it says what it *did* find. "0 words of usable prose" is
+    baffling to someone looking at a file full of words; "read 3 files, found 40
+    words of prose, none of it in a passage long enough to use" is actionable.
     """
     total = sum(c.words for c in chunks)
     if total < MIN_CORPUS_WORDS:
-        raise CorpusTooSmall(
-            f"only {total} words of usable prose — need at least {MIN_CORPUS_WORDS}. "
-            f"Add more writing, or point at a folder with more in it."
-        )
+        raise CorpusTooSmall(_too_small_message(total, chunks, documents))
     if total < WEAK_CORPUS_WORDS:
         return (
             f"{total} words is thin — the voice will be weak. "
             f"{WEAK_CORPUS_WORDS}+ is where it starts to sound like you."
         )
     return None
+
+
+def _too_small_message(total: int, chunks: list[Chunk], documents: list[tuple[str, str]] | None) -> str:
+    lines = [f"{total} words of usable prose — need at least {MIN_CORPUS_WORDS}."]
+
+    if documents is not None:
+        found = sum(len(prose.split()) for _name, prose in documents)
+        lines.append(f"Read {len(documents)} file(s) and found {found} words of prose.")
+        if found >= MIN_CORPUS_WORDS and not chunks:
+            lines.append(
+                f"None of it sat in a passage of {MIN_CHUNK_WORDS}+ words. Bulleted outlines, "
+                f"headings, code and tables are skipped — only paragraphs count."
+            )
+    lines.append("Point it at more of your writing, or at a folder with more in it.")
+    return " ".join(lines)

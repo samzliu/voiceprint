@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from mcp.server.mcpserver import MCPServer
 
-from voiceprint import engine, registry, train
+from voiceprint import engine, models, registry, train
 from voiceprint.scaffold import DEFAULT_N
 
 INSTRUCTIONS = """voiceprint writes in the user's own voice, learned from their writing.
@@ -41,7 +41,8 @@ server = MCPServer(name="voiceprint", instructions=INSTRUCTIONS)
 def list_voices() -> list[dict]:
     """List the voices this user has trained. Call this first if no voice is named."""
     return [
-        {"name": v.name, "words": v.words, "base": v.base, "trained_at": v.trained_at}
+        {"name": v.name, "words": v.words, "model": models.label(v.model),
+         "default": v.name == registry.get_default(), "trained_at": v.trained_at}
         for v in registry.load_all()
     ]
 
@@ -90,11 +91,12 @@ def rewrite_in_my_style(text: str, voice: str | None = None) -> dict:
 
 
 @server.tool()
-def train_voice(path: str, name: str, model: str = "14b") -> dict:
+def train_voice(path: str, name: str, model: str = models.DEFAULT_MODEL) -> dict:
     """Start training a new voice from a file or folder of the user's writing.
 
     Takes several minutes, so this returns a job_id immediately — poll check_training with it.
     Needs ~1-2k words of prose the user actually wrote; it refuses below 300 words.
+    model: a preset name or any Hugging Face *base* model id. Instruct/chat models are refused.
     """
     return {
         "job_id": train.spawn(path, name, model),

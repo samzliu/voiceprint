@@ -34,7 +34,7 @@ def resolve(voice_name: str | None) -> Voice:
 
 
 def _run(voice: Voice, prompt: str, length: str, n: int, temperature: float, scorer_name: str) -> Draft:
-    candidates = remote.writer(voice.base).generate.remote(
+    candidates = remote.writer(voice.model).generate.remote(
         adapter_path=voice.adapter_path,
         prompt=prompt,
         n=n,

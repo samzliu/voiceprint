@@ -16,12 +16,13 @@ from voiceprint.stylometry import Profile
 
 HOME = Path.home() / ".voiceprint"
 VOICES_DIR = HOME / "voices"
+CONFIG = HOME / "config.json"
 
 
 @dataclass
 class Voice:
     name: str
-    base: str
+    model: str
     adapter_path: str
     profile: Profile
     words: int
@@ -37,7 +38,7 @@ class Voice:
     def to_dict(self) -> dict:
         return {
             "name": self.name,
-            "base": self.base,
+            "model": self.model,
             "adapter_path": self.adapter_path,
             "profile": self.profile.to_dict(),
             "words": self.words,
@@ -87,11 +88,57 @@ def load_all() -> list[Voice]:
     return [load(name) for name in list_names()]
 
 
+def set_default(name: str) -> None:
+    load(name)  # refuse to point the default at a voice that isn't there
+    HOME.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text(json.dumps({"default_voice": name}), encoding="utf-8")
+
+
+def get_default() -> str | None:
+    if not CONFIG.exists():
+        return None
+    name = json.loads(CONFIG.read_text(encoding="utf-8")).get("default_voice")
+    return name if name in list_names() else None
+
+
 def default_name() -> str:
-    """The voice used when the user doesn't name one. Only unambiguous with one."""
+    """The voice used when the user doesn't name one.
+
+    An explicit `voiceprint use` wins; otherwise a single trained voice is
+    unambiguous. With several and no default set, refuse rather than guess —
+    picking the wrong voice wastes a generation and reads as a bug.
+    """
+    chosen = get_default()
+    if chosen:
+        return chosen
+
     names = list_names()
     if not names:
         raise VoiceNotFound("no voices trained yet — run `voiceprint train <path-to-your-writing>`")
     if len(names) > 1:
-        raise VoiceNotFound(f"several voices exist ({', '.join(names)}) — pass --voice")
+        raise VoiceNotFound(
+            f"several voices exist ({', '.join(names)}) — pass --voice, "
+            f"or pick a default with `voiceprint use <name>`"
+        )
     return names[0]
+
+
+def delete(name: str, drop_adapter: bool = True) -> str:
+    """Forget a voice locally, and remove its adapter from the Modal volume."""
+    voice = load(name)
+    path_for(name).unlink()
+    if get_default() == name:
+        CONFIG.unlink(missing_ok=True)
+
+    if not drop_adapter:
+        return f"removed '{name}' locally; adapter left at {voice.adapter_path}"
+
+    import modal
+
+    from voiceprint.modal_app import voices_volume
+
+    try:
+        voices_volume.remove_file(f"/{name}", recursive=True)
+    except (FileNotFoundError, modal.exception.NotFoundError):
+        return f"removed '{name}'; no adapter was stored for it"
+    return f"removed '{name}' and its adapter"

@@ -9,14 +9,30 @@ calls. Nothing here talks to any service of ours, because there isn't one.
 # type object of a class parameter to pick a serializer, and stringized
 # annotations turn `base: str` into the string "str", which it cannot resolve.
 
+import os
+
 import modal
 
 APP_NAME = "voiceprint"
 
-BASE_MODELS = {"14b": "Qwen/Qwen2.5-14B", "7b": "Qwen/Qwen2.5-7B"}
+# Any Hugging Face causal LM works; these are shorthands for the ones worth
+# starting from. 14b is the size the technique was validated at.
+MODEL_PRESETS = {
+    "qwen14b": "Qwen/Qwen2.5-14B",
+    "qwen7b": "Qwen/Qwen2.5-7B",
+    "qwen3b": "Qwen/Qwen2.5-3B",
+    "llama8b": "meta-llama/Llama-3.1-8B",
+    "mistral7b": "mistralai/Mistral-7B-v0.3",
+    "gemma9b": "google/gemma-2-9b",
+}
+DEFAULT_MODEL = "qwen14b"
+
 PREP_MODEL = "Qwen/Qwen2.5-7B-Instruct"
-TRAIN_GPU = "A100-80GB"
-SERVE_GPU = "A100-80GB"
+
+# A100-80GB fits any base model up to ~14B in bf16. Point this at something
+# bigger before `voiceprint deploy` if you want a bigger base.
+TRAIN_GPU = os.environ.get("VOICEPRINT_GPU", "A100-80GB")
+SERVE_GPU = os.environ.get("VOICEPRINT_GPU", "A100-80GB")
 
 LORA_RANK = 16
 LORA_ALPHA = 32
@@ -59,7 +75,7 @@ VOLUMES = {"/voices": voices_volume, "/cache": cache_volume}
 
 
 @app.function(image=train_image, gpu=TRAIN_GPU, volumes=VOLUMES, timeout=3600)
-def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
+def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     """Chunks in, adapter in the volume out.
 
     Two model loads in one container: the instruct model writes the training
@@ -130,16 +146,15 @@ def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
         f"{kind}={sum(p.kind == kind for p in pairs)}" for kind in ("write", "continue", "rewrite")
     ))
 
-    model_id = BASE_MODELS[base]
-    print(f"[train] {model_id}")
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.bfloat16, device_map="cuda"
+    print(f"[train] {model}")
+    tokenizer = AutoTokenizer.from_pretrained(model)
+    network = AutoModelForCausalLM.from_pretrained(
+        model, torch_dtype=torch.bfloat16, device_map="cuda"
     )
-    model.gradient_checkpointing_enable()
-    model.enable_input_require_grads()
-    model = get_peft_model(
-        model,
+    network.gradient_checkpointing_enable()
+    network.enable_input_require_grads()
+    network = get_peft_model(
+        network,
         LoraConfig(
             r=LORA_RANK,
             lora_alpha=LORA_ALPHA,
@@ -148,7 +163,7 @@ def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
             task_type="CAUSAL_LM",
         ),
     )
-    model.print_trainable_parameters()
+    network.print_trainable_parameters()
 
     examples = []
     for pair in pairs:
@@ -168,12 +183,12 @@ def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
         raise RuntimeError(f"every pair exceeded {MAX_SEQ_LEN} tokens — chunks are too long")
 
     optimizer = torch.optim.AdamW(
-        [p for p in model.parameters() if p.requires_grad], lr=LEARNING_RATE
+        [p for p in network.parameters() if p.requires_grad], lr=LEARNING_RATE
     )
     total_steps = max(1, (len(examples) * EPOCHS) // GRAD_ACCUM)
     schedule = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
 
-    model.train()
+    network.train()
     generator = torch.Generator().manual_seed(0)
     step = 0
     for epoch in range(EPOCHS):
@@ -182,11 +197,11 @@ def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
             example = examples[position]
             input_ids = torch.tensor([example["input_ids"]], device="cuda")
             labels = torch.tensor([example["labels"]], device="cuda")
-            loss = model(input_ids=input_ids, labels=labels).loss / GRAD_ACCUM
+            loss = network(input_ids=input_ids, labels=labels).loss / GRAD_ACCUM
             loss.backward()
             if (index + 1) % GRAD_ACCUM == 0:
                 torch.nn.utils.clip_grad_norm_(
-                    [p for p in model.parameters() if p.requires_grad], 1.0
+                    [p for p in network.parameters() if p.requires_grad], 1.0
                 )
                 optimizer.step()
                 schedule.step()
@@ -195,7 +210,7 @@ def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
         print(f"[train] epoch {epoch + 1}/{EPOCHS} loss={loss.item() * GRAD_ACCUM:.3f}")
 
     adapter_path = f"/voices/{name}"
-    model.save_pretrained(adapter_path)
+    network.save_pretrained(adapter_path)
     voices_volume.commit()
 
     elapsed = round(time.time() - started, 1)
@@ -206,7 +221,7 @@ def train_voice(name: str, chunks: list[dict], base: str = "14b") -> dict:
         "examples": len(examples),
         "steps": step,
         "seconds": elapsed,
-        "base": base,
+        "model": model,
     }
 
 
@@ -218,14 +233,14 @@ class Writer:
     the base weights, and every voice is a ~140MB adapter hot-loaded onto them.
     """
 
-    base: str = modal.parameter(default="14b")
+    model: str = modal.parameter(default="Qwen/Qwen2.5-14B")
 
     @modal.enter()
     def start(self):
         from vllm import LLM
 
         self.llm = LLM(
-            model=BASE_MODELS[self.base],
+            model=self.model,
             enable_lora=True,
             max_lora_rank=LORA_RANK,
             max_model_len=4096,

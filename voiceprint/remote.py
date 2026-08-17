@@ -39,5 +39,5 @@ def trainer():
     return _lookup(lambda: modal.Function.from_name(APP_NAME, "train_voice"))
 
 
-def writer(base: str):
-    return _lookup(lambda: modal.Cls.from_name(APP_NAME, "Writer"))(base=base)
+def writer(model: str):
+    return _lookup(lambda: modal.Cls.from_name(APP_NAME, "Writer"))(model=model)

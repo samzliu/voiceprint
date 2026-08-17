@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-from voiceprint import corpus, engine, prep, registry, remote, scorers, stylometry, train
+from voiceprint import corpus, engine, models, prep, registry, remote, scorers, stylometry, train
 from voiceprint.scaffold import DEFAULT_N, DEFAULT_TEMPERATURE, LENGTHS
 
 
@@ -21,7 +21,11 @@ def main() -> int:
     p_train = sub.add_parser("train", help="train a voice on a file or folder of your writing")
     p_train.add_argument("path", help="file or folder of .md/.txt you wrote")
     p_train.add_argument("--name", required=True, help="what to call this voice")
-    p_train.add_argument("--model", default="14b", choices=["14b", "7b"])
+    p_train.add_argument(
+        "--model",
+        default=models.DEFAULT_MODEL,
+        help=f"preset ({', '.join(models.MODEL_PRESETS)}) or any Hugging Face base-model id",
+    )
     p_train.set_defaults(run=cmd_train)
 
     p_resume = sub.add_parser("resume", help="finish collecting a training job")
@@ -51,11 +55,26 @@ def main() -> int:
     p_voices = sub.add_parser("voices", help="list trained voices")
     p_voices.set_defaults(run=cmd_voices)
 
+    p_use = sub.add_parser("use", help="set the voice used when you don't pass --voice")
+    p_use.add_argument("name")
+    p_use.set_defaults(run=cmd_use)
+
+    p_delete = sub.add_parser("delete", help="forget a voice and drop its adapter")
+    p_delete.add_argument("name")
+    p_delete.add_argument("--keep-adapter", action="store_true")
+    p_delete.set_defaults(run=cmd_delete)
+
+    p_models = sub.add_parser("models", help="list base-model presets")
+    p_models.set_defaults(run=cmd_models)
+
     p_eval = sub.add_parser("eval", help="does it sound like you, and is it reciting?")
     p_eval.add_argument("voice", nargs="?")
     p_eval.add_argument("--samples", type=int, default=5)
     p_eval.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
     p_eval.set_defaults(run=cmd_eval)
+
+    p_check = sub.add_parser("check", help="is everything set up?")
+    p_check.set_defaults(run=cmd_check)
 
     p_mcp = sub.add_parser("mcp", help="run the MCP server on stdio")
     p_mcp.set_defaults(run=cmd_mcp)
@@ -65,6 +84,7 @@ def main() -> int:
         return args.run(args)
     except (
         corpus.CorpusTooSmall,
+        models.NotABaseModel,
         registry.VoiceNotFound,
         remote.NotDeployed,
         FileNotFoundError,
@@ -87,7 +107,7 @@ def cmd_train(args) -> int:
         print(f"warning: {warning}")
 
     job_id = train.start(chunks, args.name, args.model)
-    print(f"training '{args.name}' on {args.model} — a few minutes. job {job_id}")
+    print(f"training '{args.name}' on {models.resolve(args.model)} — a few minutes. job {job_id}")
     print(f"safe to interrupt; pick it back up with:  voiceprint resume {job_id}")
     return _await_training(job_id)
 
@@ -160,11 +180,37 @@ def cmd_voices(_args) -> int:
     if not voices:
         print("no voices yet — voiceprint train <path-to-your-writing> --name me")
         return 0
+
+    default = registry.get_default()
     for voice in voices:
+        marker = "*" if voice.name == default else " "
         print(
-            f"{voice.name:<16} {voice.base:<5} {voice.words:>6} words  "
+            f"{marker} {voice.name:<16} {models.label(voice.model):<12} {voice.words:>6} words  "
             f"{voice.pairs:>3} pairs  {voice.trained_at}"
         )
+    if len(voices) > 1 and not default:
+        print("\npick a default with:  voiceprint use <name>")
+    return 0
+
+
+def cmd_use(args) -> int:
+    registry.set_default(args.name)
+    print(f"default voice is now '{args.name}'")
+    return 0
+
+
+def cmd_delete(args) -> int:
+    print(registry.delete(args.name, drop_adapter=not args.keep_adapter))
+    return 0
+
+
+def cmd_models(_args) -> int:
+    print("presets:")
+    for preset, model in models.MODEL_PRESETS.items():
+        default = "  (default)" if preset == models.DEFAULT_MODEL else ""
+        print(f"  {preset:<12} {model}{default}")
+    print("\nOr pass any Hugging Face base-model id to --model.")
+    print("Base models only: instruct/chat models are refused, they already have a voice.")
     return 0
 
 
@@ -206,6 +252,41 @@ def cmd_eval(args) -> int:
     if novel < 0.95:
         print("  ^ that is low: it is reciting your corpus, not writing in your voice")
     return 0
+
+
+def cmd_check(_args) -> int:
+    """Answer "why isn't this working" without spending a GPU minute on it."""
+    import shutil
+
+    ok = True
+
+    token = Path.home() / ".modal.toml"
+    if token.exists():
+        print("modal account    ok")
+    else:
+        ok = False
+        print("modal account    MISSING — run: modal token new")
+
+    try:
+        remote.trainer()
+        remote.writer(models.resolve(models.DEFAULT_MODEL))
+        print("deployed app     ok")
+    except remote.NotDeployed:
+        ok = False
+        print("deployed app     MISSING — run: voiceprint deploy")
+
+    voices = registry.load_all()
+    if voices:
+        default = registry.get_default() or (voices[0].name if len(voices) == 1 else None)
+        print(f"voices           {len(voices)} ({', '.join(v.name for v in voices)})")
+        print(f"default voice    {default or 'not set — voiceprint use <name>'}")
+    else:
+        print("voices           none yet — voiceprint train <your-writing> --name me")
+
+    if shutil.which("claude"):
+        print("\nwire it into your agent:")
+        print(f"  claude mcp add voiceprint -- {Path(sys.argv[0]).resolve()} mcp")
+    return 0 if ok else 1
 
 
 def cmd_mcp(_args) -> int:
