@@ -89,8 +89,12 @@ def write_in_my_style(
 ) -> dict:
     """Write a passage in the user's voice. One call per section, not per document.
 
-    notes: the brief, as bullets. Put EVERY fact, name, number and URL you want in the output
-        here — anything absent will be invented.
+    notes: the brief, as bullets — the *material* of the passage, never instructions about it.
+        Put EVERY fact, name, number and URL you want in the output here; anything absent will be
+        invented. But this is a base model completing a document, not an assistant: a bullet like
+        "do not mention any companies" is content it writes up, not a rule it follows, and makes
+        the thing more likely to appear. Constraints belong in your choice of facts, not in notes.
+        If a passage comes back wrong twice, fix the notes or move on — do not loop.
     preceding_text: prose the passage should continue from. For a continuation, this is the user's
         own text. For section N of a long piece, pass the last paragraph or two of section N-1.
         Supplying it is what keeps sections connected and stops them repeating each other.

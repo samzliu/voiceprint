@@ -108,6 +108,25 @@ in `notes` will be *invented* — confidently and plausibly. This is not a promp
 solve with a better instruction; it's inherent to the high-variance sampling that makes the prose
 read human. The model is trading accuracy for voice, on purpose.
 
+**Notes are material, not instructions.** This model cannot follow a directive. It is a base model
+completing a document, and every bullet you pass is *content it is writing up*. A note reading
+"do not mention any company" is not a rule it obeys — it is a line in the brief, and it makes the
+subject more likely to appear, not less. Never put constraints, meta-commentary, or stage
+directions in `notes`:
+
+    WRONG: "Do not cite any papers or numbers."     WRONG: "End the post here."
+    WRONG: "Name no companies other than Stash."    WRONG: "This is the final paragraph."
+    RIGHT: "Stash is what I'm building to do this."
+
+You control what it writes by choosing which facts you hand it, and you control where it stops with
+`length`. There is no other lever, and inventing one by writing English at the model wastes a
+generation.
+
+**Two tries per section, then stop.** If a passage comes back wrong twice, the notes are wrong —
+not the sampling. Rewrite what's *in* them, or take the better of the two and move on. Do not sit
+in a regenerate loop: every call samples eight full drafts on a GPU the user is paying for, and a
+short post needs about as many calls as it has sections, not thirty.
+
 **Verify afterwards.** Once assembled, check every specific against your sources or the user's own
 answers. Flag anything you can't confirm rather than quietly leaving it in.
 
