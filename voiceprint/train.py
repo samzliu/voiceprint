@@ -110,15 +110,12 @@ def spawn(path: str, name: str, model: str = models.DEFAULT_MODEL) -> str:
 
 def collect(job_id: str) -> Voice | None:
     """None while the job is still running; a registered Voice once it lands."""
-    import modal
-
     pending = PENDING_DIR / f"{job_id}.json"
     if not pending.exists():
         raise FileNotFoundError(f"no training job {job_id!r} started from this machine")
 
-    try:
-        result = modal.FunctionCall.from_id(job_id).get(timeout=0)
-    except TimeoutError:
+    result = remote.job_result(job_id)
+    if result is None:
         return None
 
     voice = _register(json.loads(pending.read_text(encoding="utf-8")), result)

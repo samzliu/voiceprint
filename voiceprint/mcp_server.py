@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from mcp.server.mcpserver import MCPServer
 
-from voiceprint import engine, models, registry, train
+from voiceprint import engine, models, registry, remote, train
 from voiceprint.scaffold import DEFAULT_N
 
 INSTRUCTIONS = """voiceprint writes in the user's own voice, learned from their writing.
@@ -35,6 +35,38 @@ to improve it — editing it re-introduces the AI cadence the voice model exists
 user wants it different, change the notes and generate again."""
 
 server = MCPServer(name="voiceprint", instructions=INSTRUCTIONS)
+
+
+@server.tool()
+def setup_status() -> dict:
+    """Where the user is in setup. Call this first, before anything else.
+
+    Returns the next step to take, if any. The steps are: a free Modal account
+    (`modal token new`, which the user must run themselves — it opens a browser),
+    then `voiceprint deploy`, then training a voice from a folder of their
+    writing. Walk them through whichever is outstanding; don't assume.
+    """
+    authenticated = remote.is_authenticated()
+    deployed = authenticated and remote.is_deployed()
+    voices = registry.list_names()
+
+    if not authenticated:
+        step = "run `modal token new` — a free Modal account, opens a browser, one time only"
+    elif not deployed:
+        step = "run `voiceprint deploy` — builds the GPU images into their account, ~4 minutes"
+    elif not voices:
+        step = "train a voice: they put 1-2k words of their own writing in a folder, then train_voice"
+    else:
+        step = ""
+
+    return {
+        "modal_account": authenticated,
+        "deployed": deployed,
+        "voices": voices,
+        "default_voice": registry.get_default(),
+        "next_step": step,
+        "ready": bool(voices),
+    }
 
 
 @server.tool()

@@ -76,6 +76,19 @@ def main() -> int:
     p_check = sub.add_parser("check", help="is everything set up?")
     p_check.set_defaults(run=cmd_check)
 
+    p_status = sub.add_parser("status", help="what voiceprint is running and storing in your Modal account")
+    p_status.set_defaults(run=cmd_status)
+
+    p_stop = sub.add_parser("stop", help="shut down warm GPU containers now")
+    p_stop.set_defaults(run=cmd_stop)
+
+    p_uninstall = sub.add_parser("uninstall", help="remove voiceprint from your Modal account")
+    p_uninstall.add_argument(
+        "--keep-cache", action="store_true", help="leave the downloaded model weights in place"
+    )
+    p_uninstall.add_argument("--yes", action="store_true")
+    p_uninstall.set_defaults(run=cmd_uninstall)
+
     p_mcp = sub.add_parser("mcp", help="run the MCP server on stdio")
     p_mcp.set_defaults(run=cmd_mcp)
 
@@ -200,8 +213,64 @@ def cmd_use(args) -> int:
 
 
 def cmd_delete(args) -> int:
-    print(registry.delete(args.name, drop_adapter=not args.keep_adapter))
+    voice = registry.forget(args.name)
+    if args.keep_adapter:
+        print(f"removed '{voice.name}' locally; adapter left at {voice.adapter_path}")
+        return 0
+    dropped = remote.delete_adapter(voice.name)
+    print(f"removed '{voice.name}'" + (" and its adapter" if dropped else "; no adapter was stored"))
     return 0
+
+
+def cmd_status(_args) -> int:
+    """What this tool is running and storing inside someone else's cloud account.
+
+    The model cache is the surprising one: base weights are tens of gigabytes and
+    they sit in a volume being billed until somebody removes them.
+    """
+    if not remote.is_deployed():
+        print(remote.DEPLOY_HINT)
+        return 1
+
+    print(f"app              '{remote.APP_NAME}' deployed to your Modal workspace")
+    stored = remote.stored()
+    print(f"adapters         {len(stored.adapters)} ({_size(stored.adapter_bytes)})")
+    for name, size in stored.adapters:
+        known = "" if name in registry.list_names() else "   (no local record — voiceprint delete won't find it)"
+        print(f"  {name:<16} {_size(size)}{known}")
+    print(f"model cache      {_size(stored.cache_bytes)} of base weights, billed as volume storage")
+    print("\nGPU containers shut down 10 minutes after the last draft.")
+    print("  voiceprint stop        shut them down now")
+    print("  voiceprint uninstall   remove all of it from your account")
+    return 0
+
+
+def cmd_stop(_args) -> int:
+    return remote.stop()
+
+
+def cmd_uninstall(args) -> int:
+    drop_cache = not args.keep_cache
+    if not args.yes:
+        stored = remote.stored()
+        print("This removes voiceprint from your Modal account:")
+        print(f"  - the '{remote.APP_NAME}' app and any running containers")
+        if drop_cache:
+            print(f"  - {_size(stored.cache_bytes)} of cached model weights")
+            print(f"  - {len(stored.adapters)} trained adapter(s), {_size(stored.adapter_bytes)}")
+        print("\nYour writing and your local voice records are untouched.")
+        print("Re-run with --yes to go ahead (--keep-cache keeps the weights and adapters).")
+        return 0
+
+    for line in remote.uninstall(drop_cache=drop_cache):
+        print(line)
+    return 0
+
+
+def _size(num_bytes: int) -> str:
+    if num_bytes >= 1e9:
+        return f"{num_bytes / 1e9:.1f} GB"
+    return f"{num_bytes / 1e6:.0f} MB"
 
 
 def cmd_models(_args) -> int:
@@ -260,18 +329,15 @@ def cmd_check(_args) -> int:
 
     ok = True
 
-    token = Path.home() / ".modal.toml"
-    if token.exists():
+    if remote.is_authenticated():
         print("modal account    ok")
     else:
         ok = False
         print("modal account    MISSING — run: modal token new")
 
-    try:
-        remote.trainer()
-        remote.writer(models.resolve(models.DEFAULT_MODEL))
+    if remote.is_deployed():
         print("deployed app     ok")
-    except remote.NotDeployed:
+    else:
         ok = False
         print("deployed app     MISSING — run: voiceprint deploy")
 

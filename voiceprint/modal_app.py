@@ -15,17 +15,8 @@ import modal
 
 APP_NAME = "voiceprint"
 
-# Any Hugging Face causal LM works; these are shorthands for the ones worth
-# starting from. 14b is the size the technique was validated at.
-MODEL_PRESETS = {
-    "qwen14b": "Qwen/Qwen2.5-14B",
-    "qwen7b": "Qwen/Qwen2.5-7B",
-    "qwen3b": "Qwen/Qwen2.5-3B",
-    "llama8b": "meta-llama/Llama-3.1-8B",
-    "mistral7b": "mistralai/Mistral-7B-v0.3",
-    "gemma9b": "google/gemma-2-9b",
-}
-DEFAULT_MODEL = "qwen14b"
+VOICES_VOLUME = "voiceprint-voices"
+CACHE_VOLUME = "voiceprint-cache"
 
 PREP_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
@@ -47,8 +38,8 @@ MAX_SEQ_LEN = 2048
 
 app = modal.App(APP_NAME)
 
-voices_volume = modal.Volume.from_name("voiceprint-voices", create_if_missing=True)
-cache_volume = modal.Volume.from_name("voiceprint-cache", create_if_missing=True)
+voices_volume = modal.Volume.from_name(VOICES_VOLUME, create_if_missing=True)
+cache_volume = modal.Volume.from_name(CACHE_VOLUME, create_if_missing=True)
 
 # `add_local_python_source` has to come last in each chain: Modal refuses build
 # steps after local files are added, so that a code edit doesn't rebuild the image.

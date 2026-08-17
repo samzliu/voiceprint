@@ -123,22 +123,11 @@ def default_name() -> str:
     return names[0]
 
 
-def delete(name: str, drop_adapter: bool = True) -> str:
-    """Forget a voice locally, and remove its adapter from the Modal volume."""
+def forget(name: str) -> Voice:
+    """Drop the local record. The adapter living in the cloud is someone else's
+    business — see `remote.delete_adapter`."""
     voice = load(name)
     path_for(name).unlink()
     if get_default() == name:
         CONFIG.unlink(missing_ok=True)
-
-    if not drop_adapter:
-        return f"removed '{name}' locally; adapter left at {voice.adapter_path}"
-
-    import modal
-
-    from voiceprint.modal_app import voices_volume
-
-    try:
-        voices_volume.remove_file(f"/{name}", recursive=True)
-    except (FileNotFoundError, modal.exception.NotFoundError):
-        return f"removed '{name}'; no adapter was stored for it"
-    return f"removed '{name}' and its adapter"
+    return voice

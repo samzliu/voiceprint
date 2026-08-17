@@ -6,7 +6,18 @@ starting from; anything else is passed straight through as a repo id.
 
 from __future__ import annotations
 
-from voiceprint.modal_app import DEFAULT_MODEL, MODEL_PRESETS
+# Any Hugging Face causal LM works; these are shorthands for ones worth starting
+# from. Deliberately plain data with no Modal import — nothing about choosing a
+# base model requires a cloud account to be configured.
+MODEL_PRESETS = {
+    "qwen14b": "Qwen/Qwen2.5-14B",
+    "qwen7b": "Qwen/Qwen2.5-7B",
+    "qwen3b": "Qwen/Qwen2.5-3B",
+    "llama8b": "meta-llama/Llama-3.1-8B",
+    "mistral7b": "mistralai/Mistral-7B-v0.3",
+    "gemma9b": "google/gemma-2-9b",
+}
+DEFAULT_MODEL = "qwen14b"
 
 INSTRUCT_SUFFIXES = ("-instruct", "-it", "-chat", "-chat-hf")
 
