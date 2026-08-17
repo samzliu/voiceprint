@@ -5,9 +5,10 @@ from inside any agent that speaks MCP.
 
 ```
 $ voiceprint train ~/writing --name me
-2,140 words, 9 chunks from ~/writing
-training 'me' on 14b — this takes a few minutes
-done in 284.0s: 24 pairs, 96 steps -> /voices/me
+8793 words, 40 chunks from ~/writing
+training 'me' on 14b — a few minutes. job fc-01M06S0G6DENM38AZ295W72W5K
+..........
+done: 102 pairs from 8793 words -> /voices/me
 
 $ voiceprint write "agents forget everything between sessions" "memory should be a wiki, not a log"
 ```
@@ -60,6 +61,9 @@ voiceprint train post.md --name me          # or one file
 - Prose *you* wrote. Not transcripts, not things you co-edited, not your company's blog voice.
 - Code blocks, headings, tables, quotes and bulleted outlines are stripped — a notes app is half
   thinking-out-loud, and training on fragments gets you a model that writes in fragments.
+- **If you want good short-form, feed it short-form.** `--length short` is a trained control, so it
+  is only as good as the number of genuinely short pieces in your corpus. A folder of essays
+  teaches it essays.
 - `--model 7b` for a cheaper, faster, less-tested tier.
 
 Training is spawned, not held open on a connection, so closing your laptop can't throw away a GPU
@@ -85,7 +89,9 @@ voiceprint write --continue-from draft.md
 voiceprint write --notes-file section3.md --continue-from section2.md
 
 # short things sound different from essays, so ask for short
-voiceprint write --length short "decline the intro politely, offer March"
+voiceprint write --length short "decline the intro politely" "offer to reconnect in March"
+# -> Nope, my focus this month is on writing that book and finishing up other
+#    open loops. Can I catch up with you in March?
 
 # say this in my voice; code and headings pass through untouched
 pbpaste | voiceprint rewrite
@@ -113,13 +119,22 @@ and calls the voice model section by section.
 ```sh
 $ voiceprint eval me
 voice: me  (5 drafts continuing held-out passages)
-  stylometry   0.781   (your own unseen writing: 0.804)
-  novelty      0.997   (1.000 = nothing lifted from the training text)
+  stylometry   0.548   (your own unseen writing: 0.476)
+  novelty      1.000   (1.000 = nothing lifted from the training text)
 ```
 
 `eval` continues passages the adapter never saw during training and asks three questions: does it
 sound like you, is it just reciting your corpus, and how does that compare to a real sample of your
 own unseen writing. Novelty below 0.95 means it memorized and the run is bad.
+
+Those are real numbers from a real 8.8k-word corpus, and they come with a caveat worth stating:
+best-of-N *selects* for the style score, so scoring above your own baseline means "picked from
+eight tries", not "more you than you are." Novelty is the number to actually trust.
+
+The defaults were set by measuring, not guessing. At 8 epochs the training loss reached 0.000 and
+the adapter began ignoring its input on rewrites — handing back corpus-flavoured prose instead of
+your text in your voice. At 3, novelty went to 1.000, the style score went *up*, and rewrites
+started preserving content.
 
 ## What it costs
 

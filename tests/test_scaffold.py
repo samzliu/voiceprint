@@ -65,3 +65,23 @@ def test_unknown_length_is_refused():
 )
 def test_length_buckets(words, expected):
     assert length_bucket(words) == expected
+
+
+def test_a_budget_cut_ends_at_the_last_whole_sentence():
+    """A draft that stops mid-word reads as broken software, not as a draft."""
+    from voiceprint.scaffold import trim_to_sentence
+
+    assert trim_to_sentence("First one. Second one. Third is cut off mid") == (
+        "First one. Second one."
+    )
+    assert trim_to_sentence('He said "go." Then the tr') == 'He said "go."'
+    assert trim_to_sentence("no terminator anywhere") == "no terminator anywhere"
+
+
+def test_short_is_capped_to_what_short_means():
+    from voiceprint.scaffold import MAX_TOKENS, SHORT_MAX_WORDS, stop_for
+
+    assert MAX_TOKENS["short"] < MAX_TOKENS["medium"]
+    assert MAX_TOKENS["short"] <= SHORT_MAX_WORDS * 2
+    assert "\n\n" in stop_for("short")
+    assert "\n\n" not in stop_for("medium")

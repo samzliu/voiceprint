@@ -15,9 +15,10 @@ from voiceprint.scaffold import (
     DEFAULT_N,
     DEFAULT_TEMPERATURE,
     MAX_TOKENS,
-    STOP_SEQUENCES,
     build_rewrite_prompt,
     build_write_prompt,
+    stop_for,
+    trim_to_sentence,
 )
 
 
@@ -40,14 +41,18 @@ def _run(voice: Voice, prompt: str, length: str, n: int, temperature: float, sco
         temperature=temperature,
         min_p=DEFAULT_MIN_P,
         max_tokens=MAX_TOKENS[length],
-        stop=STOP_SEQUENCES,
+        stop=stop_for(length),
     )
-    candidates = [c for c in candidates if c.strip()]
-    if not candidates:
+    texts = [
+        trim_to_sentence(c["text"]) if c["finish_reason"] == "length" else c["text"]
+        for c in candidates
+        if c["text"].strip()
+    ]
+    if not texts:
         raise RuntimeError("the model returned nothing — try again, or lower --temp")
 
     scorer = scorers.build(scorer_name, voice.profile)
-    ranked = sorted(((c, scorer.score(c)) for c in candidates), key=lambda pair: -pair[1])
+    ranked = sorted(((t, scorer.score(t)) for t in texts), key=lambda pair: -pair[1])
     return Draft(text=ranked[0][0], score=ranked[0][1], alternates=ranked[1:])
 
 

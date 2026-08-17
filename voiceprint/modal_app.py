@@ -22,7 +22,10 @@ LORA_RANK = 16
 LORA_ALPHA = 32
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 LEARNING_RATE = 1e-4
-EPOCHS = 8
+# 8 epochs drove training loss to 0.000 and the adapter started ignoring the
+# input on rewrites, handing back corpus-flavoured prose instead of the user's
+# text in their voice. 3 keeps the voice and leaves the input load-bearing.
+EPOCHS = 3
 GRAD_ACCUM = 2
 MAX_SEQ_LEN = 2048
 
@@ -33,22 +36,24 @@ cache_volume = modal.Volume.from_name("voiceprint-cache", create_if_missing=True
 
 # `add_local_python_source` has to come last in each chain: Modal refuses build
 # steps after local files are added, so that a code edit doesn't rebuild the image.
-_base_image = modal.Image.debian_slim(python_version="3.12").env(
-    {"HF_HUB_ENABLE_HF_TRANSFER": "1", "HF_HOME": "/cache/hf"}
-)
+_base_image = modal.Image.debian_slim(python_version="3.12").env({"HF_HOME": "/cache/hf"})
 
 train_image = _base_image.pip_install(
     "torch==2.13.0",
     "transformers==4.57.6",
     "peft==0.20.0",
     "accelerate>=1.0",
-    "huggingface_hub[hf_transfer]",
+    "huggingface_hub",
 ).add_local_python_source("voiceprint")
 
-serve_image = _base_image.pip_install(
-    "vllm==0.27.1",
-    "huggingface_hub[hf_transfer]",
-).add_local_python_source("voiceprint")
+# Serving needs a CUDA *devel* base, not debian_slim: vLLM's flashinfer backend
+# JIT-compiles kernels at engine start and dies without nvcc on the box.
+serve_image = (
+    modal.Image.from_registry("nvidia/cuda:13.0.1-devel-ubuntu24.04", add_python="3.12")
+    .env({"HF_HOME": "/cache/hf"})
+    .pip_install("vllm==0.27.1", "huggingface_hub")
+    .add_local_python_source("voiceprint")
+)
 
 VOLUMES = {"/voices": voices_volume, "/cache": cache_volume}
 
@@ -248,4 +253,7 @@ class Writer:
             n=n, temperature=temperature, min_p=min_p, max_tokens=max_tokens, stop=stop
         )
         result = self.llm.generate([prompt], params, lora_request=request)[0]
-        return [output.text.strip() for output in result.outputs]
+        return [
+            {"text": output.text.strip(), "finish_reason": output.finish_reason}
+            for output in result.outputs
+        ]

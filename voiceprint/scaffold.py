@@ -17,6 +17,8 @@ output quietly degrades into ordinary AI prose.
 
 from __future__ import annotations
 
+import re
+
 SHORT_MAX_WORDS = 120
 MEDIUM_MAX_WORDS = 500
 LENGTHS = ("short", "medium", "long")
@@ -26,11 +28,26 @@ LENGTHS = ("short", "medium", "long")
 DEFAULT_TEMPERATURE = 1.5
 DEFAULT_MIN_P = 0.05
 DEFAULT_N = 8
-MAX_TOKENS = {"short": 300, "medium": 900, "long": 2000}
+# Budgets follow the length definitions above, so "short" cannot ramble past what
+# short means. Whatever the budget cuts off is trimmed back to the last complete
+# sentence; see `trim_to_sentence`.
+MAX_TOKENS = {"short": 200, "medium": 900, "long": 2000}
 
 # The model is trained to emit EOS at the end of a body. These are belt-and-braces
 # for the case where it instead starts a fresh document.
 STOP_SEQUENCES = ["\nNotes:", "\nDraft:", "\nLength:"]
+
+
+def stop_for(length: str) -> list[str]:
+    """A short piece is one block, by definition.
+
+    Without this the model keeps going after a two-line reply and staples on
+    another unrelated one, because a blank line looks to it like the middle of a
+    document rather than the end of one.
+    """
+    if length == "short":
+        return STOP_SEQUENCES + ["\n\n"]
+    return STOP_SEQUENCES
 
 
 def length_bucket(word_count: int) -> str:
@@ -71,3 +88,19 @@ def build_rewrite_prompt(draft: str) -> str:
     """Rewrite is the one genuinely different task: the source text's content has
     to survive, so the model is shown it rather than notes about it."""
     return f"Draft:\n{draft.strip()}\n\nRewrite:\n"
+
+
+_LAST_SENTENCE = re.compile(r"^.*[.!?][\"'”’)\]]*", re.DOTALL)
+
+
+def trim_to_sentence(text: str) -> str:
+    """End at the last complete sentence.
+
+    Only used when the token budget cut a generation off mid-sentence. A draft
+    that stops in the middle of a word reads as broken software rather than as a
+    draft, and the half-sentence carries no information the user wanted.
+    """
+    match = _LAST_SENTENCE.match(text.strip())
+    if not match:
+        return text.strip()
+    return match.group(0).strip()
