@@ -12,7 +12,6 @@ from __future__ import annotations
 import subprocess
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 import modal
 
@@ -39,10 +38,22 @@ class Stored:
         return sum(size for _name, size in self.adapters)
 
 
-def is_authenticated() -> bool:
-    return (Path.home() / ".modal.toml").exists() or bool(
-        __import__("os").environ.get("MODAL_TOKEN_ID")
-    )
+def probe() -> tuple[bool, bool]:
+    """(authenticated, deployed), asked of Modal rather than guessed.
+
+    Looking for ~/.modal.toml is not the same question: Modal resolves
+    credentials from a profile path and the environment, so a file check can
+    report "no account" to somebody whose account is working perfectly. One
+    lookup answers both — reaching the server proves the credentials, and
+    finding the app proves the deploy.
+    """
+    try:
+        modal.Function.from_name(APP_NAME, "train_voice").hydrate()
+        return True, True
+    except modal.exception.NotFoundError:
+        return True, False
+    except (modal.exception.AuthError, modal.exception.ConnectionError):
+        return False, False
 
 
 def deploy() -> int:
@@ -118,11 +129,7 @@ def job_result(job_id: str) -> dict | None:
 
 
 def is_deployed() -> bool:
-    try:
-        trainer()
-        return True
-    except NotDeployed:
-        return False
+    return probe()[1]
 
 
 def _volume(name: str):

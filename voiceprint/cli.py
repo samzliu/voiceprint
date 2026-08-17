@@ -330,13 +330,14 @@ def cmd_check(_args) -> int:
 
     ok = True
 
-    if remote.is_authenticated():
+    authenticated, deployed = remote.probe()
+    if authenticated:
         print("modal account    ok")
     else:
         ok = False
         print("modal account    MISSING — run: modal token new")
 
-    if remote.is_deployed():
+    if deployed:
         print("deployed app     ok")
     else:
         ok = False

@@ -46,8 +46,7 @@ def setup_status() -> dict:
     then `voiceprint deploy`, then training a voice from a folder of their
     writing. Walk them through whichever is outstanding; don't assume.
     """
-    authenticated = remote.is_authenticated()
-    deployed = authenticated and remote.is_deployed()
+    authenticated, deployed = remote.probe()
     voices = registry.list_names()
 
     if not authenticated:
