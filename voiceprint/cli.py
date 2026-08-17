@@ -24,6 +24,10 @@ def main() -> int:
     p_train.add_argument("--model", default="14b", choices=["14b", "7b"])
     p_train.set_defaults(run=cmd_train)
 
+    p_resume = sub.add_parser("resume", help="finish collecting a training job")
+    p_resume.add_argument("job_id", nargs="?", help="defaults to the most recent unfinished job")
+    p_resume.set_defaults(run=cmd_resume)
+
     p_write = sub.add_parser("write", help="draft in your voice")
     p_write.add_argument("notes", nargs="*", help="a bullet of the brief; repeat for more")
     p_write.add_argument("--notes-file", help="file of bullets, or - for stdin")
@@ -82,13 +86,28 @@ def cmd_train(args) -> int:
     if warning:
         print(f"warning: {warning}")
 
-    print(f"training '{args.name}' on {args.model} — this takes a few minutes")
-    voice, result = train.run(chunks, args.name, args.model)
-    print(
-        f"done in {result['seconds']}s: {result['pairs']} pairs, "
-        f"{result['steps']} steps -> {voice.adapter_path}"
-    )
-    print(f"\nwrite with:  voiceprint write --voice {voice.name} \"your first bullet\"")
+    job_id = train.start(chunks, args.name, args.model)
+    print(f"training '{args.name}' on {args.model} — a few minutes. job {job_id}")
+    print(f"safe to interrupt; pick it back up with:  voiceprint resume {job_id}")
+    return _await_training(job_id)
+
+
+def cmd_resume(args) -> int:
+    job_id = args.job_id
+    if not job_id:
+        jobs = train.pending_jobs()
+        if not jobs:
+            print("no training jobs waiting to be collected")
+            return 0
+        job_id, name = jobs[-1]
+        print(f"resuming '{name}' (job {job_id})")
+    return _await_training(job_id)
+
+
+def _await_training(job_id: str) -> int:
+    voice = train.wait(job_id, on_tick=lambda: print(".", end="", flush=True))
+    print(f"\ndone: {voice.pairs} pairs from {voice.words} words -> {voice.adapter_path}")
+    print(f'\nwrite with:  voiceprint write --voice {voice.name} "your first bullet"')
     return 0
 
 

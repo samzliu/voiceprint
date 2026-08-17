@@ -7,6 +7,7 @@ workspace is the chunked prose it derives, and what comes back is an adapter.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict
 
 from voiceprint import corpus, registry, remote, stylometry
@@ -61,37 +62,49 @@ def _register(record: dict, result: dict) -> Voice:
     return voice
 
 
-def run(chunks: list[corpus.Chunk], name: str, base: str = "14b") -> tuple[Voice, dict]:
-    """Train on chunks already read, so a caller that showed the user a corpus
-    summary doesn't pay to read the folder twice."""
+def start(chunks: list[corpus.Chunk], name: str, base: str = "14b") -> str:
+    """Kick off training and return a job id.
+
+    Always spawned, never awaited over a live connection: training takes minutes,
+    and a dropped wifi connection should not be able to throw away a GPU job the
+    user paid for. Everything needed to finish registering the voice is written
+    to disk here, so `voiceprint resume <job_id>` can pick it up from anywhere.
+    """
     training, holdout = split_holdout(chunks)
-    record = _local_record(chunks, training, holdout, name, base)
-
-    result = remote.trainer().remote(
-        name=name,
-        chunks=[asdict(c) for c in training],
-        base=base,
-    )
-    return _register(record, result), result
-
-
-def train(path: str, name: str, base: str = "14b") -> tuple[Voice, dict]:
-    chunks, _warning = prepare(path)
-    return run(chunks, name, base)
-
-
-def spawn(path: str, name: str, base: str = "14b") -> str:
-    """Start training and return a job id. Used by the MCP server, where a job
-    that takes minutes cannot block a tool call."""
-    chunks, _warning = prepare(path)
-    training, holdout = split_holdout(chunks)
-
     call = remote.trainer().spawn(name=name, chunks=[asdict(c) for c in training], base=base)
 
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
     record = _local_record(chunks, training, holdout, name, base)
     (PENDING_DIR / f"{call.object_id}.json").write_text(json.dumps(record), encoding="utf-8")
     return call.object_id
+
+
+def wait(job_id: str, poll_seconds: int = 10, on_tick=None) -> Voice:
+    while True:
+        voice = collect(job_id)
+        if voice is not None:
+            return voice
+        if on_tick:
+            on_tick()
+        time.sleep(poll_seconds)
+
+
+def run(chunks: list[corpus.Chunk], name: str, base: str = "14b", on_tick=None) -> Voice:
+    """Train on chunks already read, so a caller that showed the user a corpus
+    summary doesn't pay to read the folder twice."""
+    return wait(start(chunks, name, base), on_tick=on_tick)
+
+
+def train(path: str, name: str, base: str = "14b") -> Voice:
+    chunks, _warning = prepare(path)
+    return run(chunks, name, base)
+
+
+def spawn(path: str, name: str, base: str = "14b") -> str:
+    """Start training without waiting. Used by the MCP server, where a job that
+    takes minutes cannot block a tool call."""
+    chunks, _warning = prepare(path)
+    return start(chunks, name, base)
 
 
 def collect(job_id: str) -> Voice | None:
@@ -110,3 +123,13 @@ def collect(job_id: str) -> Voice | None:
     voice = _register(json.loads(pending.read_text(encoding="utf-8")), result)
     pending.unlink()
     return voice
+
+
+def pending_jobs() -> list[tuple[str, str]]:
+    """(job_id, voice name) for training runs started here that never landed."""
+    if not PENDING_DIR.exists():
+        return []
+    out = []
+    for path in sorted(PENDING_DIR.glob("*.json")):
+        out.append((path.stem, json.loads(path.read_text(encoding="utf-8"))["name"]))
+    return out

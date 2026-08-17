@@ -58,8 +58,16 @@ voiceprint train post.md --name me          # or one file
 
 - **~1–2k words is enough.** Below 300 it refuses; below 700 it warns.
 - Prose *you* wrote. Not transcripts, not things you co-edited, not your company's blog voice.
-- Code blocks, headings, tables and quotes are stripped — they aren't your voice.
+- Code blocks, headings, tables, quotes and bulleted outlines are stripped — a notes app is half
+  thinking-out-loud, and training on fragments gets you a model that writes in fragments.
 - `--model 7b` for a cheaper, faster, less-tested tier.
+
+Training is spawned, not held open on a connection, so closing your laptop can't throw away a GPU
+job you paid for:
+
+```sh
+voiceprint resume            # pick the run back up
+```
 
 ## Write
 
