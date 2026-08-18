@@ -17,6 +17,8 @@ VOICES_VOLUME = "voiceprint-voices"
 CACHE_VOLUME = "voiceprint-cache"
 
 PREP_MODEL = "Qwen/Qwen2.5-7B-Instruct"
+PUBLIC_DEMO_MODEL = "Qwen/Qwen2.5-14B"
+PUBLIC_DEMO_VOICE = "sam3"
 
 # Fits every supported base model in bf16 with room for a KV cache. If you ever
 # want a base too big for 80GB, change this and redeploy.
@@ -57,6 +59,12 @@ serve_image = (
     modal.Image.from_registry("nvidia/cuda:13.0.1-devel-ubuntu24.04", add_python="3.12")
     .env({"HF_HOME": "/cache/hf"})
     .pip_install("vllm==0.27.1", "huggingface_hub")
+    .add_local_python_source("voiceprint")
+)
+
+web_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("fastapi[standard]")
     .add_local_python_source("voiceprint")
 )
 
@@ -215,7 +223,16 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     }
 
 
-@app.cls(image=serve_image, gpu=SERVE_GPU, volumes=VOLUMES, scaledown_window=600, timeout=900)
+@app.cls(
+    image=serve_image,
+    gpu=SERVE_GPU,
+    volumes=VOLUMES,
+    scaledown_window=600,
+    timeout=900,
+    # A public demo must never turn a traffic spike into a fleet of A100s.
+    # Excess requests queue behind this one container.
+    max_containers=1,
+)
 class Writer:
     """One resident base model, adapters swapped per request.
 
@@ -262,3 +279,75 @@ class Writer:
             {"text": output.text.strip(), "finish_reason": output.finish_reason}
             for output in result.outputs
         ]
+
+
+def parse_demo_brief(value: object) -> list[str]:
+    """Validate the deliberately small public surface before it reaches a GPU."""
+    if not isinstance(value, str):
+        raise ValueError("brief must be text")
+    brief = value.strip()
+    if len(brief) < 20:
+        raise ValueError("add a little more detail (at least 20 characters)")
+    if len(brief) > 1_200:
+        raise ValueError("brief is too long (1,200 characters maximum)")
+
+    notes = []
+    for raw in brief.splitlines():
+        note = raw.strip().lstrip("-*• ").strip()
+        if note:
+            notes.append(note)
+    if not notes:
+        raise ValueError("brief must contain at least one note")
+    if len(notes) > 8:
+        raise ValueError("use no more than 8 notes")
+    return notes
+
+
+@app.function(image=web_image, timeout=900, max_containers=2)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def demo_generate(item: dict) -> dict:
+    """The authenticated HTTP bridge used by the rate-limited demo site.
+
+    Modal proxy auth prevents callers from bypassing the site's quotas. The
+    endpoint itself fixes the voice, model, candidate count, and token budget so
+    even a compromised client cannot request an unbounded generation.
+    """
+    from fastapi import HTTPException
+
+    from voiceprint.scaffold import (
+        DEFAULT_MIN_P,
+        DEFAULT_TEMPERATURE,
+        build_write_prompt,
+        stop_for,
+        trim_to_sentence,
+    )
+
+    try:
+        notes = parse_demo_brief(item.get("brief"))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    length = item.get("length", "medium")
+    if length not in {"short", "medium"}:
+        raise HTTPException(status_code=400, detail="length must be short or medium")
+
+    prompt = build_write_prompt(notes, length)
+    results = Writer(model=PUBLIC_DEMO_MODEL).generate.remote(
+        adapter_path=f"/voices/{PUBLIC_DEMO_VOICE}",
+        prompt=prompt,
+        n=2,
+        temperature=DEFAULT_TEMPERATURE,
+        min_p=DEFAULT_MIN_P,
+        max_tokens=200 if length == "short" else 600,
+        stop=stop_for(length),
+    )
+    drafts = [
+        trim_to_sentence(result["text"])
+        if result["finish_reason"] == "length"
+        else result["text"]
+        for result in results
+        if result["text"].strip()
+    ]
+    if not drafts:
+        raise HTTPException(status_code=502, detail="the model returned no draft")
+    return {"drafts": drafts, "voice": PUBLIC_DEMO_VOICE, "length": length}
