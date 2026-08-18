@@ -32,7 +32,24 @@ other writers and developers can find it.
 
 ## Quickstart
 
-### 1. Install
+### Install with a coding agent
+
+Paste this into Claude Code, Codex, or another coding agent with terminal access:
+
+```text
+Set up Voiceprint for me from https://github.com/samzliu/voiceprint.
+Read the README and follow its current setup instructions. Install from PyPI,
+run voiceprint check, and configure the Voiceprint MCP server for this agent.
+Pause if Modal needs me to authenticate. Before training, ask me for the folder
+containing my writing and remind me that the corpus should use one consistent voice.
+```
+
+The agent can handle installation, deployment, checks, and MCP configuration. You may need to
+complete Modal's browser authentication and choose the writing folder to train on.
+
+### Install manually
+
+#### 1. Install
 
 Install Voiceprint with `uv`:
 
@@ -42,7 +59,7 @@ uv tool install voiceprint
 
 Or use `pip install voiceprint` in a Python 3.10 or newer environment.
 
-### 2. Deploy
+#### 2. Deploy
 
 Create a [Modal](https://modal.com/) account, then deploy the training and serving images:
 
@@ -52,7 +69,7 @@ voiceprint deploy
 voiceprint check
 ```
 
-### 3. Train
+#### 3. Train
 
 Train a voice from Markdown or text files:
 
@@ -60,7 +77,7 @@ Train a voice from Markdown or text files:
 voiceprint train ~/my-writing --name me
 ```
 
-### 4. Write
+#### 4. Write
 
 ```sh
 voiceprint write "the wedge is trust, not features" "our users are ops leads"
@@ -124,7 +141,8 @@ Short-form works best when the training corpus includes short-form writing.
 ## Use it from an agent
 
 Voiceprint exposes an MCP server so an agent can research and plan while the adapter handles the
-prose. Register it with Claude Code:
+prose. For a guided installation, use the [agent setup prompt](#install-with-a-coding-agent). To
+register an existing installation with Claude Code manually:
 
 ```sh
 claude mcp add voiceprint -- /full/path/to/.venv/bin/voiceprint mcp
