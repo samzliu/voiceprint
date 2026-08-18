@@ -239,7 +239,7 @@ hosted backend.
 The sampling settings that preserve variation also increase factual errors. Put names, dates,
 numbers, and URLs in the notes, and verify the finished draft. Voiceprint is not a fact checker.
 
-Voiceprint does not charge for usage. Modal bills your account for GPU time and storage.
+Modal bills your account for GPU time and storage.
 
 | Operation | Measured result |
 | --- | --- |
