@@ -79,6 +79,37 @@ their own and it isn't the user's.
 
 Once `ready` is true, pick a workflow by how much they already have in hand.
 
+### Choose the delivery mode
+
+State the mode before drafting. If the user does not choose one, default to **raw mode** for a
+Voiceprint demonstration and **edited mode** when they explicitly ask for publication-ready copy.
+
+**Raw mode — maximum voice fidelity.** Return the adapter's winning prose verbatim. Tell the user
+that raw mode best preserves the learned voice and the candidate's measured score, but may contain
+false facts, grammar problems, malformed metaphors, or structural mistakes. Put factual warnings
+outside the draft; do not silently repair it.
+
+**Edited mode — bounded corrections.** Tell the user that AI editing may make detector performance
+worse. Make only corrections that are necessary to ship:
+
+- replace or remove a false fact, attribution, number, name, date, URL, or quote;
+- fix spelling, grammar, a missing/duplicated word, or broken syntax;
+- remove an accidental repetition or an incomplete fragment.
+
+Do not smooth transitions, swap a sound metaphor, tighten rhythm, normalize sentence lengths,
+reorder paragraphs, add a recap, or perform a general "polish." Preserve every unaffected word.
+When a larger passage is wrong, change its notes and regenerate that passage with Voiceprint rather
+than rewriting it yourself.
+
+After any edit, call `score_final_text` on the complete, exact artifact. Never attach the raw
+candidate's score to an edited document. Stylometry measures resemblance to the user's corpus; it
+is not an AI detector. Use `scorer="pangram"` only when the user wants detector testing and a
+Pangram key is available. Describe it as one detector's result, never a universal pass.
+
+If edited mode materially loses the requested score, pass only the affected prose through
+`rewrite_in_my_style`, verify every fact again, and re-score the newly assembled exact artifact.
+Stop after one re-humanization pass unless the user asks to keep iterating.
+
 **Completion** — they already have prose, or selected some text.
 
 Pass their text as `preceding_text` and continue it. No outline, no questions, no preamble. This is
@@ -135,11 +166,13 @@ in a regenerate loop: every call samples eight full drafts on a GPU the user is 
 short post needs about as many calls as it has sections, not thirty.
 
 **Verify afterwards.** Once assembled, check every specific against your sources or the user's own
-answers. Flag anything you can't confirm rather than quietly leaving it in.
+answers. In raw mode, flag errors outside the draft. In edited mode, apply only the bounded
+corrections above. Flag anything you can't confirm rather than quietly leaving it in.
 
-**Don't edit the prose.** Do not paraphrase it, tighten it, or fix its rhythm. Editing re-introduces
-exactly the AI cadence the voice model exists to avoid — you will make it worse in the only
-dimension that matters. If the user wants it different, change the notes and generate again.
+**Don't polish the prose.** Do not paraphrase it, tighten it, fix its rhythm, or smooth transitions.
+Those edits re-introduce the AI cadence the voice model exists to avoid. Raw mode permits no prose
+edits. Edited mode permits only the bounded corrections above. For anything larger, change the
+notes and generate again.
 
 **Use `length` rather than asking for a word count.** `short` for a reply or a post, `medium` for a
 section, `long` for a whole piece. It's a trained control; a word count in the notes is not.
@@ -157,6 +190,8 @@ section, `long` for a whole piece. It's a trained control; a word count in the n
   continuation, or next section; the difference is only which arguments you fill in
 - `rewrite_in_my_style(text, voice)` — the words exist, the voice is wrong. Keeps content; code,
   headings, tables and quotes pass through untouched
+- `score_final_text(text, voice, scorer)` — score the exact artifact after all edits; stylometry is
+  local voice similarity, while optional Pangram is one detector's estimated human probability
 - `train_voice(path, name, model)` → `job_id`, then `check_training(job_id)` — takes minutes
 
 The user also has CLI commands worth pointing at: `voiceprint status` (what it's running and

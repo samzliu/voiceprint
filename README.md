@@ -138,6 +138,27 @@ voiceprint write --length short \
 
 Short-form works best when the training corpus includes short-form writing.
 
+### Choose raw or edited delivery
+
+Voiceprint's raw output preserves the learned voice most faithfully, but it can contain factual or
+grammatical errors. An agent using Voiceprint should label that as **raw mode** and leave the prose
+untouched.
+
+In **edited mode**, limit changes to false facts, spelling, grammar, broken syntax, and accidental
+repetition. Avoid general AI polishing such as smoothing transitions, replacing metaphors,
+tightening rhythm, or restructuring paragraphs; those changes can make the result read more like a
+generic assistant. Regenerate a bad passage from corrected notes instead.
+
+Always score the exact final artifact after editing:
+
+```sh
+voiceprint score final.md
+voiceprint score final.md --scorer pangram  # requires PANGRAM_API_KEY
+```
+
+The default score measures similarity to the training corpus. Pangram reports one detector's
+estimated human probability; it does not guarantee the result from other AI detectors.
+
 ## Use it from an agent
 
 Voiceprint exposes an MCP server so an agent can research and plan while the adapter handles the
@@ -213,6 +234,18 @@ voice: me  (5 drafts continuing held-out passages)
 `eval` continues passages held out during training. Stylometry measures similarity to the corpus;
 novelty checks whether the adapter repeats training text. A novelty score below 0.95 suggests
 memorization.
+
+### Calibrate detector results against real writing
+
+Before treating an AI detector as a product metric, test it on the author's original prose. In one
+calibration run, Pangram 4.0 classified all 888 words of the author's essay *Any Sufficiently
+Advanced Technology* as human-written:
+
+![Pangram 4.0 classifying an 888-word original essay as 100% human-written](https://raw.githubusercontent.com/samzliu/voiceprint/main/.github/assets/pangram-human-written-baseline.png)
+
+This is an author baseline, not a score for Voiceprint-generated text. Raw drafts, edited drafts,
+and publication-ready artifacts are different documents and must each be tested separately. Never
+report a candidate's detector result after changing its words.
 
 The example comes from an 8,800-word corpus. Voiceprint selects the best of several candidates by
 style score, so its score is not directly comparable to a single human sample. Three training

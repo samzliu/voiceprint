@@ -80,7 +80,7 @@ fieldset legend { float: left; margin-right: 24px; padding-top: 10px; }
 blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); letter-spacing: -.035em; }
 .proof-note { padding-top: 18px; border-top: 1px solid var(--ink); font: 13px/1.5 var(--mono); }
 .proof-note strong { background: var(--signal); padding: 2px 4px; }
-.proof-note a { display: inline-block; margin-top: 22px; font-weight: 700; }
+.proof-note a { display: block; margin-top: 14px; font-weight: 700; }
 
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--ink); }
 .steps li { min-height: 310px; padding: 24px 28px; border-right: 1px solid var(--ink); }
@@ -88,6 +88,10 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
 .steps b { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--signal); border: 1px solid var(--ink); font: 12px var(--mono); }
 .steps h3 { margin: 95px 0 12px; font: 28px var(--serif); }
 .steps p { margin: 0; color: var(--muted); font: 14px/1.5 var(--mono); }
+.mode-note { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); border-top: 0; }
+.mode-note p { margin: 0; padding: 24px 28px; font: 13px/1.55 var(--mono); }
+.mode-note p + p { border-left: 1px solid var(--ink); }
+.mode-note strong { display: block; margin-bottom: 6px; color: var(--signal-dark); }
 
 .install { min-height: 310px; display: grid; grid-template-columns: 1fr auto auto; gap: 42px; align-items: center; border-bottom: 1px solid var(--ink); }
 .install h2 { font-size: clamp(38px, 4vw, 62px); }
@@ -113,6 +117,8 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
   .steps li, .steps li:first-child { min-height: auto; border: 1px solid var(--ink); border-top: 0; }
   .steps li:first-child { border-top: 1px solid var(--ink); }
   .steps h3 { margin-top: 45px; }
+  .mode-note { grid-template-columns: 1fr; }
+  .mode-note p + p { border-left: 0; border-top: 1px solid var(--ink); }
   .install { grid-template-columns: 1fr; padding: 70px 0; gap: 24px; }
   .install code { width: 100%; overflow-x: auto; }
 }

@@ -30,9 +30,20 @@ Interview is not just for the blank page: it is how facts get in. Every name, nu
 must appear in `notes`, or the model will invent one. That is inherent to the sampling that makes
 the prose read human, and it cannot be prompted away.
 
-After assembling, verify every specific against your sources. Do not paraphrase the returned prose
-to improve it — editing it re-introduces the AI cadence the voice model exists to avoid. If the
-user wants it different, change the notes and generate again."""
+Before writing, identify the delivery mode:
+
+  raw     Return adapter prose verbatim. Warn that it best preserves the learned voice but can
+          contain factual, grammatical, or structural errors.
+  edited  Correct only false facts, spelling, grammar, broken syntax, and accidental repetition.
+          Do not smooth transitions, replace sound metaphors, reorder paragraphs, tighten the
+          rhythm, or otherwise perform a general AI polish. Warn that even limited AI edits may
+          score as more AI-like.
+
+After assembling, verify every specific against the sources. Score the exact final artifact, never
+an earlier candidate. A stylometry score measures voice similarity, not AI detection. Pangram is an
+optional single-detector check and does not guarantee what other detectors will report. If an edited
+artifact loses the desired score, run the affected prose back through Voiceprint, verify its facts
+again, and score that exact result before delivery."""
 
 server = MCPServer(name="voiceprint", instructions=INSTRUCTIONS)
 
@@ -116,7 +127,7 @@ def write_in_my_style(
         trained control, so use it rather than asking for a word count in the notes.
     candidates: how many drafts to sample before returning the best-ranked one.
 
-    Returns the winning draft plus its style score. Use the prose as-is.
+    Returns raw adapter prose plus its style score. It has not been fact-checked or edited.
     """
     draft = engine.write(
         notes=notes,
@@ -126,7 +137,13 @@ def write_in_my_style(
         n=candidates,
         temperature=1.5,
     )
-    return {"text": draft.text, "style_score": round(draft.score, 3), "candidates": candidates}
+    return {
+        "text": draft.text,
+        "style_score": round(draft.score, 3),
+        "candidates": candidates,
+        "mode": "raw",
+        "warning": "raw adapter output; verify facts and grammar before publishing",
+    }
 
 
 @server.tool()
@@ -138,6 +155,30 @@ def rewrite_in_my_style(text: str, voice: str | None = None) -> dict:
     Do not use it to write something new; use write_in_my_style for that.
     """
     return {"text": engine.rewrite(text, voice_name=voice)}
+
+
+@server.tool()
+def score_final_text(
+    text: str,
+    voice: str | None = None,
+    scorer: str = "stylometry",
+) -> dict:
+    """Score the exact final artifact after all edits.
+
+    scorer: "stylometry" measures similarity to the user's corpus locally. "pangram" returns
+        Pangram's estimated human probability and requires PANGRAM_API_KEY. Pangram is one AI
+        detector, not a guarantee about every detector.
+
+    Never reuse a raw candidate's score for an edited version. Pass the complete text that will
+    actually be delivered or published.
+    """
+    value = engine.score_text(text, voice_name=voice, scorer_name=scorer)
+    return {
+        "scorer": scorer,
+        "score": round(value, 3),
+        "meaning": "human_probability" if scorer == "pangram" else "style_similarity",
+        "artifact": "exact_input",
+    }
 
 
 @server.tool()

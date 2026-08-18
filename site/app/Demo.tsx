@@ -110,7 +110,7 @@ export function Demo({ initialBrief }: { initialBrief: string }) {
 
       <section className={`draft-panel state-${status}`} aria-live="polite">
         <div className="draft-toolbar">
-          <span>VOICE / SAM · CANDIDATE {drafts.length ? activeDraft + 1 : "—"}</span>
+          <span>RAW MODE · VOICE / SAM · CANDIDATE {drafts.length ? activeDraft + 1 : "—"}</span>
           {status === "done" && (
             <button type="button" onClick={copyDraft}>{copied ? "COPIED" : "COPY"}</button>
           )}
@@ -139,7 +139,7 @@ export function Demo({ initialBrief }: { initialBrief: string }) {
               ))}
             </article>
             <div className="draft-footer">
-              <span>{remaining === null ? "LIMITED PUBLIC DEMO" : `${remaining} RUN${remaining === 1 ? "" : "S"} LEFT TODAY`}</span>
+              <span>{remaining === null ? "VERIFY FACTS BEFORE USE" : `${remaining} RUN${remaining === 1 ? "" : "S"} LEFT · VERIFY FACTS`}</span>
               {drafts.length > 1 && (
                 <button type="button" onClick={() => setActiveDraft((activeDraft + 1) % drafts.length)}>
                   SHOW ALTERNATE →

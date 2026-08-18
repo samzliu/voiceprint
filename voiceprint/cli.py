@@ -52,6 +52,12 @@ def main() -> int:
     p_rewrite.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
     p_rewrite.set_defaults(run=cmd_rewrite)
 
+    p_score = sub.add_parser("score", help="score the exact final text (stdin or a file)")
+    p_score.add_argument("path", nargs="?", help="file to score; omit to read stdin")
+    p_score.add_argument("--voice")
+    p_score.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
+    p_score.set_defaults(run=cmd_score)
+
     p_voices = sub.add_parser("voices", help="list trained voices")
     p_voices.set_defaults(run=cmd_voices)
 
@@ -185,6 +191,14 @@ def cmd_rewrite(args) -> int:
             scorer_name=args.scorer,
         )
     )
+    return 0
+
+
+def cmd_score(args) -> int:
+    text = Path(args.path).read_text(encoding="utf-8") if args.path else sys.stdin.read()
+    score = engine.score_text(text, voice_name=args.voice, scorer_name=args.scorer)
+    label = "human probability" if args.scorer == "pangram" else "style match"
+    print(f"{args.scorer} {score:.3f}  ({label}; exact input)")
     return 0
 
 

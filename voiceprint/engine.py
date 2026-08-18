@@ -33,6 +33,19 @@ def resolve(voice_name: str | None) -> Voice:
     return registry.load(voice_name or registry.default_name())
 
 
+def score_text(text: str, voice_name: str | None = None, scorer_name: str = "stylometry") -> float:
+    """Score the exact artifact the user is about to publish.
+
+    Keeping this separate from generation matters: even a small edit can change
+    a detector or style score, so a candidate's score must never be attached to
+    a later revision.
+    """
+    if not text.strip():
+        raise ValueError("nothing to score")
+    voice = resolve(voice_name)
+    return scorers.build(scorer_name, voice.profile).score(text)
+
+
 def _run(voice: Voice, prompt: str, length: str, n: int, temperature: float, scorer_name: str) -> Draft:
     candidates = remote.writer(voice.model).generate.remote(
         adapter_path=voice.adapter_path,
