@@ -18,7 +18,7 @@ import modal
 from voiceprint.modal_app import APP_NAME, CACHE_VOLUME, VOICES_VOLUME
 
 DEPLOY_HINT = (
-    "voiceprint isn't deployed to your Modal workspace yet.\n"
+    "Voiceprint isn't deployed to your Modal workspace yet.\n"
     "Run:  modal token new   (once, if you haven't)\n"
     "      voiceprint deploy"
 )
@@ -68,7 +68,7 @@ def stop() -> int:
 
 
 def uninstall(drop_cache: bool) -> list[str]:
-    """Remove voiceprint from the user's Modal account.
+    """Remove Voiceprint from the user's Modal account.
 
     Anyone who installs a tool into their own cloud account deserves a clean way
     to take it back out, including the tens of gigabytes of model weights it
@@ -86,7 +86,7 @@ def uninstall(drop_cache: bool) -> list[str]:
 
 
 def stored() -> Stored:
-    """What voiceprint is keeping in the user's account, and how big it is."""
+    """What Voiceprint is keeping in the user's account, and how big it is."""
     adapters = []
     for entry in _volume(VOICES_VOLUME).listdir("/"):
         size = sum(

@@ -1,6 +1,6 @@
 ---
 name: voiceprint
-description: Set up and use the user's voiceprint model — a model trained on their own writing that drafts in their voice. Use whenever the user asks you to draft, continue, or rewrite prose that should sound like them (blog posts, essays, emails, replies, posts, newsletters), says "in my voice" / "sound like me" / "the way I'd write it", or wants to get voiceprint set up in the first place.
+description: Set up and use the user's Voiceprint model — a model trained on their own writing that drafts in their voice. Use whenever the user asks you to draft, continue, or rewrite prose that should sound like them (blog posts, essays, emails, replies, posts, newsletters), says "in my voice" / "sound like me" / "the way I'd write it", or wants to get Voiceprint set up in the first place.
 ---
 
 # Writing in the user's voice

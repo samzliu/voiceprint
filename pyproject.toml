@@ -1,10 +1,23 @@
 [project]
 name = "voiceprint"
 version = "0.1.0"
-description = "Train a model on your writing, then draft in your voice from the CLI or any MCP client."
+description = "Train a writing model on your prose, then draft in your voice from the CLI or any MCP client."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
+keywords = ["writing", "voice", "lora", "cli", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing",
+]
 dependencies = [
     "modal>=1.5",
     "numpy>=1.26",
@@ -16,6 +29,11 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 voiceprint = "voiceprint.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/samzliu/voice-writer"
+Repository = "https://github.com/samzliu/voice-writer"
+Issues = "https://github.com/samzliu/voice-writer/issues"
 
 [build-system]
 requires = ["hatchling"]

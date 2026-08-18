@@ -1,4 +1,4 @@
-"""voiceprint — train a model on your writing, then draft in your voice."""
+"""Voiceprint — train a model on your writing, then draft in your voice."""
 
 from __future__ import annotations
 
@@ -76,13 +76,13 @@ def main() -> int:
     p_check = sub.add_parser("check", help="is everything set up?")
     p_check.set_defaults(run=cmd_check)
 
-    p_status = sub.add_parser("status", help="what voiceprint is running and storing in your Modal account")
+    p_status = sub.add_parser("status", help="what Voiceprint is running and storing in your Modal account")
     p_status.set_defaults(run=cmd_status)
 
     p_stop = sub.add_parser("stop", help="shut down warm GPU containers now")
     p_stop.set_defaults(run=cmd_stop)
 
-    p_uninstall = sub.add_parser("uninstall", help="remove voiceprint from your Modal account")
+    p_uninstall = sub.add_parser("uninstall", help="remove Voiceprint from your Modal account")
     p_uninstall.add_argument(
         "--keep-cache", action="store_true", help="leave the downloaded model weights in place"
     )
@@ -253,7 +253,7 @@ def cmd_uninstall(args) -> int:
     drop_cache = not args.keep_cache
     if not args.yes:
         stored = remote.stored()
-        print("This removes voiceprint from your Modal account:")
+        print("This removes Voiceprint from your Modal account:")
         print(f"  - the '{remote.APP_NAME}' app and any running containers")
         if drop_cache:
             print(f"  - {_size(stored.cache_bytes)} of cached model weights")

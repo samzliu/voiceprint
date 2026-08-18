@@ -1,6 +1,6 @@
 # What this is for, and what it isn't
 
-voiceprint clones a writing voice from a small sample. That is genuinely useful — drafting faster
+Voiceprint clones a writing voice from a small sample. That is genuinely useful — drafting faster
 in your own register, getting past a blank page, writing more when writing is hard — and it is
 just as obviously misusable. So the line is drawn here rather than left implied.
 

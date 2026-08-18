@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">Voiceprint terminal demo</title>
+  <desc id="desc">Train a voice on a writing folder, then draft a short reply in that voice.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#17142b"/>
+      <stop offset="1" stop-color="#0b1020"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9b87f5"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#020617" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="560" rx="28" fill="url(#page)"/>
+  <circle cx="1080" cy="70" r="170" fill="#7c3aed" opacity="0.10"/>
+  <circle cx="105" cy="520" r="210" fill="#0891b2" opacity="0.08"/>
+
+  <text x="72" y="85" fill="url(#accent)" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="38" font-weight="700">Voiceprint</text>
+  <text x="72" y="122" fill="#a5b4c7" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20">A small model that writes like you.</text>
+
+  <g filter="url(#shadow)">
+    <rect x="72" y="160" width="1056" height="330" rx="16" fill="#0d1117" stroke="#30363d"/>
+    <path d="M72 205h1056" stroke="#30363d"/>
+    <circle cx="102" cy="183" r="7" fill="#ff5f57"/>
+    <circle cx="126" cy="183" r="7" fill="#febc2e"/>
+    <circle cx="150" cy="183" r="7" fill="#28c840"/>
+    <text x="600" y="190" text-anchor="middle" fill="#7d8590" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">Voiceprint — zsh</text>
+
+    <text x="102" y="250" fill="#67e8f9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19">$ voiceprint train ~/writing --name me</text>
+    <text x="102" y="286" fill="#a5b4c7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">8,793 words · 40 chunks · Qwen2.5-14B</text>
+    <text x="102" y="322" fill="#86efac" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">✓ voice “me” is ready</text>
+
+    <text x="102" y="374" fill="#67e8f9" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="19">$ voiceprint write --length short "decline politely" "reconnect in March"</text>
+    <text x="102" y="419" fill="#f0f6fc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">Nope, my focus this month is on writing that book and finishing</text>
+    <text x="102" y="450" fill="#f0f6fc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">up other open loops. Can I catch up with you in March?</text>
+  </g>
+</svg>

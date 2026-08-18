@@ -13,7 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from voiceprint import engine, models, registry, remote, train
 from voiceprint.scaffold import DEFAULT_N
 
-INSTRUCTIONS = """voiceprint writes in the user's own voice, learned from their writing.
+INSTRUCTIONS = """Voiceprint writes in the user's own voice, learned from their writing.
 
 It is a voice, not a writer. It cannot plan, research, or keep facts straight — you do that. Pick
 one of three workflows:

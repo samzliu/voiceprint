@@ -49,7 +49,7 @@ def reject_instruct(model: str) -> None:
     tail = model.rsplit("/", 1)[-1].lower()
     if tail.endswith(INSTRUCT_SUFFIXES) or "instruct" in tail:
         raise NotABaseModel(
-            f"{model} is an instruct/chat model. voiceprint trains on base models — "
+            f"{model} is an instruct/chat model. Voiceprint trains on base models — "
             f"instruct-tuned ones already have a voice, and it isn't yours. "
             f"Try the base version (e.g. 'Qwen/Qwen2.5-14B', not '-Instruct')."
         )
