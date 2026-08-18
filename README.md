@@ -4,20 +4,20 @@
 the terminal or any MCP client.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![PyPI](https://img.shields.io/pypi/v/voiceprint.svg)](https://pypi.org/project/voiceprint/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/samzliu/voice-writer/blob/main/LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/voiceprint.svg?cacheSeconds=300)](https://pypi.org/project/voiceprint/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/samzliu/voiceprint/blob/main/LICENSE)
 
 [Quickstart](#quickstart) · [Examples](#what-you-can-do) · [MCP](#use-it-from-an-agent) ·
-[Evaluation](#evaluate-the-result) · [Issues](https://github.com/samzliu/voice-writer/issues)
+[Evaluation](#evaluate-the-result) · [Issues](https://github.com/samzliu/voiceprint/issues)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/samzliu/voice-writer/main/.github/assets/voiceprint-demo.svg" alt="Voiceprint terminal demo: train a voice, then draft a short reply" width="100%">
+  <img src="https://raw.githubusercontent.com/samzliu/voiceprint/main/.github/assets/voiceprint-demo.svg" alt="Voiceprint terminal demo: train a voice, then draft a short reply" width="100%">
 </p>
 
 Voiceprint is built for first drafts: emails, posts, essays, and sections of longer work. It learns
 style from your prose while an agent or a set of notes supplies the facts and structure.
 
-If Voiceprint is useful to you, [star the repository](https://github.com/samzliu/voice-writer) so
+If Voiceprint is useful to you, [star the repository](https://github.com/samzliu/voiceprint) so
 other writers and developers can find it.
 
 ## Why Voiceprint
@@ -263,7 +263,7 @@ volume, so a cold start loads them from storage rather than downloading them aga
 | Training finds little usable prose | Add prose paragraphs; headings, code, tables, and outlines do not count. |
 | The terminal disconnected during training | Run `voiceprint resume`. |
 
-If the problem persists, [open an issue](https://github.com/samzliu/voice-writer/issues) with the
+If the problem persists, [open an issue](https://github.com/samzliu/voiceprint/issues) with the
 command you ran and the full error output.
 
 ## Contributing
@@ -285,8 +285,8 @@ For larger changes, start with an issue so the approach can be discussed first.
 
 Only train on your own voice or a voice you have explicit permission to use. Do not use Voiceprint
 for impersonation, deceptive accounts or reviews, or work that must be written without assistance.
-See the [use policy](https://github.com/samzliu/voice-writer/blob/main/POLICY.md).
+See the [use policy](https://github.com/samzliu/voiceprint/blob/main/POLICY.md).
 
 ## License
 
-[MIT](https://github.com/samzliu/voice-writer/blob/main/LICENSE) © Voiceprint contributors
+[MIT](https://github.com/samzliu/voiceprint/blob/main/LICENSE) © Voiceprint contributors

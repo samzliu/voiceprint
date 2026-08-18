@@ -31,9 +31,9 @@ dev = ["pytest>=8.0"]
 voiceprint = "voiceprint.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/samzliu/voice-writer"
-Repository = "https://github.com/samzliu/voice-writer"
-Issues = "https://github.com/samzliu/voice-writer/issues"
+Homepage = "https://github.com/samzliu/voiceprint"
+Repository = "https://github.com/samzliu/voiceprint"
+Issues = "https://github.com/samzliu/voiceprint/issues"
 
 [build-system]
 requires = ["hatchling"]
