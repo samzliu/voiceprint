@@ -6,6 +6,7 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   MODAL_ENDPOINT: string;
+  MODAL_RESULT_ENDPOINT: string;
   MODAL_KEY: string;
   MODAL_SECRET: string;
   IMAGES: {
@@ -56,7 +57,7 @@ async function giveBackQuota(env: Env, scopes: string[], day: string) {
 }
 
 async function generate(request: Request, env: Env): Promise<Response> {
-  if (!env.DB || !env.MODAL_ENDPOINT || !env.MODAL_KEY || !env.MODAL_SECRET) {
+  if (!env.DB || !env.MODAL_ENDPOINT || !env.MODAL_RESULT_ENDPOINT || !env.MODAL_KEY || !env.MODAL_SECRET) {
     return json({ error: "The demo is not configured yet." }, 503);
   }
   if (Number(request.headers.get("content-length") || 0) > 4_000) {
@@ -107,15 +108,47 @@ async function generate(request: Request, env: Env): Promise<Response> {
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(8 * 60 * 1_000),
     });
-    const data = await upstream.json() as { drafts?: string[]; detail?: string };
-    if (!upstream.ok || !data.drafts?.length) {
+    const data = await upstream.json() as { call_id?: string; detail?: string };
+    if (!upstream.ok || !data.call_id) {
       await giveBackQuota(env, [ipScope, globalScope], day);
-      return json({ error: data.detail || "The model could not finish that draft." }, 502);
+      return json({ error: data.detail || "The model could not start that draft." }, 502);
     }
-    return json({ drafts: data.drafts, remaining: PER_IP_DAILY_LIMIT - personal.count });
+    return json({ jobId: data.call_id, remaining: PER_IP_DAILY_LIMIT - personal.count }, 202);
   } catch {
     await giveBackQuota(env, [ipScope, globalScope], day);
-    return json({ error: "The model took too long to wake up. Your run was not charged." }, 504);
+    return json({ error: "The model could not start. Your run was not charged." }, 504);
+  }
+}
+
+async function poll(request: Request, env: Env): Promise<Response> {
+  if (!env.MODAL_RESULT_ENDPOINT || !env.MODAL_KEY || !env.MODAL_SECRET) {
+    return json({ error: "The demo is not configured yet." }, 503);
+  }
+  const callId = new URL(request.url).searchParams.get("job");
+  if (!callId || !/^fc-[A-Za-z0-9_-]+$/.test(callId)) {
+    return json({ error: "Invalid job id." }, 400);
+  }
+  try {
+    const upstream = await fetch(env.MODAL_RESULT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "Modal-Key": env.MODAL_KEY,
+        "Modal-Secret": env.MODAL_SECRET,
+      },
+      body: JSON.stringify({ call_id: callId }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const data = await upstream.json() as { drafts?: string[]; detail?: string; status?: string };
+    if (upstream.status === 202) {
+      return json({ status: "pending" }, 202);
+    }
+    if (!upstream.ok || !data.drafts?.length) {
+      return json({ error: data.detail || "The model could not finish that draft." }, 502);
+    }
+    return json({ drafts: data.drafts });
+  } catch {
+    return json({ status: "pending" }, 202);
   }
 }
 
@@ -146,10 +179,13 @@ const worker = {
     }
 
     if (url.pathname === "/api/generate") {
-      if (request.method !== "POST") {
-        return json({ error: "Method not allowed." }, 405);
+      if (request.method === "POST") {
+        return generate(request, env);
       }
-      return generate(request, env);
+      if (request.method === "GET") {
+        return poll(request, env);
+      }
+      return json({ error: "Method not allowed." }, 405);
     }
 
     return handler.fetch(request, env, ctx);

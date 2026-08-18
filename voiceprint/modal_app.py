@@ -303,17 +303,7 @@ def parse_demo_brief(value: object) -> list[str]:
     return notes
 
 
-@app.function(image=web_image, timeout=900, max_containers=2)
-@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
-def demo_generate(item: dict) -> dict:
-    """The authenticated HTTP bridge used by the rate-limited demo site.
-
-    Modal proxy auth prevents callers from bypassing the site's quotas. The
-    endpoint itself fixes the voice, model, candidate count, and token budget so
-    even a compromised client cannot request an unbounded generation.
-    """
-    from fastapi import HTTPException
-
+def _run_demo_job(item: dict) -> dict:
     from voiceprint.scaffold import (
         DEFAULT_MIN_P,
         DEFAULT_TEMPERATURE,
@@ -322,14 +312,11 @@ def demo_generate(item: dict) -> dict:
         trim_to_sentence,
     )
 
-    try:
-        notes = parse_demo_brief(item.get("brief"))
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+    notes = parse_demo_brief(item.get("brief"))
 
     length = item.get("length", "medium")
     if length not in {"short", "medium"}:
-        raise HTTPException(status_code=400, detail="length must be short or medium")
+        raise ValueError("length must be short or medium")
 
     prompt = build_write_prompt(notes, length)
     results = Writer(model=PUBLIC_DEMO_MODEL).generate.remote(
@@ -349,5 +336,44 @@ def demo_generate(item: dict) -> dict:
         if result["text"].strip()
     ]
     if not drafts:
-        raise HTTPException(status_code=502, detail="the model returned no draft")
+        raise RuntimeError("the model returned no draft")
     return {"drafts": drafts, "voice": PUBLIC_DEMO_VOICE, "length": length}
+
+
+@app.function(image=web_image, timeout=900, max_containers=2)
+def demo_job(item: dict) -> dict:
+    """A queued generation, allowed to outlive any individual HTTP request."""
+    return _run_demo_job(item)
+
+
+@app.function(image=web_image, timeout=60, max_containers=2)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def demo_start(item: dict) -> dict:
+    """Validate and enqueue a bounded public-demo generation."""
+    from fastapi import HTTPException
+
+    try:
+        parse_demo_brief(item.get("brief"))
+        if item.get("length", "medium") not in {"short", "medium"}:
+            raise ValueError("length must be short or medium")
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    call = demo_job.spawn(item)
+    return {"call_id": call.object_id}
+
+
+@app.function(image=web_image, timeout=60, max_containers=2)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def demo_result(item: dict):
+    """Poll a queued generation without holding a long-lived proxy request."""
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+
+    call_id = item.get("call_id")
+    if not isinstance(call_id, str) or not call_id.startswith("fc-"):
+        raise HTTPException(status_code=400, detail="invalid job id")
+    try:
+        return modal.FunctionCall.from_id(call_id).get(timeout=0)
+    except TimeoutError:
+        return JSONResponse(status_code=202, content={"status": "pending"})

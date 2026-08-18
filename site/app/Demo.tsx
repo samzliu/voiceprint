@@ -6,6 +6,7 @@ type GenerateResponse = {
   drafts?: string[];
   error?: string;
   remaining?: number;
+  jobId?: string;
 };
 
 export function Demo({ initialBrief }: { initialBrief: string }) {
@@ -30,12 +31,28 @@ export function Demo({ initialBrief }: { initialBrief: string }) {
         body: JSON.stringify({ brief, length }),
       });
       const data = (await response.json()) as GenerateResponse;
-      if (!response.ok || !data.drafts?.length) {
+      if (!response.ok || !data.jobId) {
         throw new Error(data.error || "The draft did not make it back. Try again.");
       }
-      setDrafts(data.drafts);
-      setActiveDraft(0);
       setRemaining(typeof data.remaining === "number" ? data.remaining : null);
+
+      let completed: GenerateResponse | null = null;
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 3_000));
+        const result = await fetch(`/api/generate?job=${encodeURIComponent(data.jobId)}`);
+        const resultData = (await result.json()) as GenerateResponse;
+        if (result.status === 202) continue;
+        if (!result.ok || !resultData.drafts?.length) {
+          throw new Error(resultData.error || "The draft did not make it back. Try again.");
+        }
+        completed = resultData;
+        break;
+      }
+      if (!completed?.drafts?.length) {
+        throw new Error("The model is still busy. Please try again in a moment.");
+      }
+      setDrafts(completed.drafts);
+      setActiveDraft(0);
       setStatus("done");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Something went wrong.");
