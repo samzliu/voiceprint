@@ -1,9 +1,8 @@
 # voiceprint
 
-Train a small model on a little of your writing, then draft in your voice — from the terminal, or
-from inside any agent that speaks MCP.
+Train a small adapter on your writing, then use it to draft from the command line or an MCP client.
 
-```
+```console
 $ voiceprint train ~/writing --name me
 8793 words, 40 chunks from ~/writing
 training 'me' on Qwen/Qwen2.5-14B — a few minutes. job fc-01M06S0G6DENM38AZ295W72W5K
@@ -16,223 +15,193 @@ Nope, my focus this month is on writing that book and finishing up other open lo
 Can I catch up with you in March?
 ```
 
-Everything runs in **your own Modal account**. There is no service behind this, no signup, no
-account with us, nothing to pay us for. Your writing stays on your machine; the chunks it derives
-go to your GPU container and nowhere else.
+voiceprint runs in your own [Modal](https://modal.com/) account. Source text stays local; derived
+training chunks are sent to your Modal GPU container. There is no hosted voiceprint service or
+separate account.
 
-## Why it works
+## How it works
 
-A LoRA adapter trained on ~1–2k words of your prose, applied to a **base** model — not an instruct
-model — and prompted as a plain document rather than a chat turn. Two details carry the result:
+voiceprint trains a LoRA adapter on a Hugging Face base model. It formats prompts as plain documents
+instead of chat messages and generates several candidates using high-temperature min-p sampling.
+The CLI ranks those candidates by similarity to the training corpus.
 
-- **Never a chat template.** The same base model given the same brief as a chat instruction is
-  caught by AI detectors 100% of the time. Formatted as a document, it reads human.
-- **min-p sampling at high temperature.** Low temperature collapses the variance that makes prose
-  sound like a person. Top-p is the worst of the three options.
+The approach was tested with roughly 1,000–2,000 words. More source text did not improve the
+measured style score after about 700 words in the test corpus.
 
-More data doesn't help. The curve is flat above ~700 words: the base model already knows how to
-write, and the adapter only installs *how you sound*.
+High-variance sampling also makes factual errors more likely. Put important names, dates, numbers,
+and URLs in the notes, then verify them before publishing. Treat the output as a first draft.
 
-## The honest boundary
+## Install
 
-The high-variance sampling that makes this read human also makes it unreliable on specifics. **It
-will invent URLs, dates, names and numbers.** That's not a bug to be patched — it's the same knob.
-
-Put every fact you care about into the notes, and check the specifics before you publish. This is a
-first-draft engine in your voice. You keep it honest.
-
-## Setup
-
-Not on PyPI yet. For now:
+voiceprint is not on PyPI yet:
 
 ```sh
-git clone https://github.com/samzliu/voice-writer && cd voice-writer
-uv venv && uv pip install -e .        # or: python -m venv .venv && pip install -e .
+git clone https://github.com/samzliu/voice-writer
+cd voice-writer
+uv venv
+uv pip install -e .
 ```
 
-Then, once:
+You can use `python -m venv .venv && pip install -e .` instead of `uv`.
+
+Set up Modal and deploy the GPU app once:
 
 ```sh
-modal token new       # free Modal account, no card needed to start
-voiceprint deploy     # builds two GPU images into your workspace — ~4 min the first time
-voiceprint check      # confirms the account, the deployment, and your voices
+modal token new
+voiceprint deploy
+voiceprint check
 ```
 
-`deploy` is a real step, not ceremony: it's what keeps a container warm between calls, so your
-second draft doesn't wait on a cold 14B load.
+`deploy` builds the training and serving images in your Modal workspace. A measured first run took
+about 4 minutes to deploy, 6 minutes to train on an A100, and 364 seconds for the first write after
+idle. Warm writes took about 3 seconds. Serving containers stop after 10 minutes of inactivity.
 
-**What the first run actually costs you in time**, measured rather than estimated:
+## Train a voice
 
-| | |
-|---|---|
-| `voiceprint deploy` | ~4 min, once ever (builds two GPU images) |
-| `voiceprint train` | ~6 min on an A100 |
-| first `write` after idle | **364 s** — container start, then 28 GB of weights into the GPU |
-| every `write` after that | **3 s** |
-
-Training downloads the base model into a volume that serving shares, so writing never re-downloads
-it — the cold start is the engine coming up, not a download. Containers sleep after 10 minutes
-idle, so the first draft of a session pays it and the rest of the session doesn't. Budget about 15
-minutes from clone to first draft.
-
-## Train
+Pass a Markdown or text file, or a directory containing them:
 
 ```sh
-voiceprint train ~/my-writing --name me     # a folder of .md/.txt you wrote
-voiceprint train post.md --name me          # or one file
+voiceprint train ~/my-writing --name me
+voiceprint train post.md --name me
 ```
 
-- **~1–2k words is enough.** Below 300 it refuses; below 700 it warns.
-- Prose *you* wrote. Not transcripts, not things you co-edited, not your company's blog voice.
-- Code blocks, headings, tables, quotes and bulleted outlines are stripped — a notes app is half
-  thinking-out-loud, and training on fragments gets you a model that writes in fragments.
-- **If you want good short-form, feed it short-form.** `--length short` is a trained control, so
-  it's only as good as the number of genuinely short pieces in your corpus. A folder of essays
-  teaches it essays.
+Use prose you wrote yourself. Headings, code blocks, tables, quotes, and bulleted outlines are
+removed during preparation. The command rejects corpora below 300 usable words and warns below 700.
 
-Training is spawned, not held open on a connection, so closing your laptop can't throw away a GPU
-job you paid for:
+Corpus shape matters. If you want short-form output, include real short-form samples; the
+`--length short` option cannot learn that style from a directory of essays.
+
+Training runs as a remote job. If the terminal closes, reconnect to the latest unfinished job with:
 
 ```sh
-voiceprint resume            # pick the most recent run back up
+voiceprint resume
 ```
 
-## Write
-
-The same command covers a fresh section, a continuation, and the next section of something long —
-because a body prefix is just a partly-filled document.
+## Write and rewrite
 
 ```sh
-# from a brief
+# Draft from notes
 voiceprint write "the wedge is trust, not features" "our users are ops leads"
 
-# continue what you started (the strongest mode — your own tokens set the voice)
+# Continue an existing draft
 voiceprint write --continue-from draft.md
 
-# next section, aware of the last one
+# Draft the next section using notes and the previous section
 voiceprint write --notes-file section3.md --continue-from section2.md
 
-# short things sound different from essays, so ask for short
+# Request short output
 voiceprint write --length short "decline the intro politely" "offer to reconnect in March"
 
-# say this in my voice; code and headings pass through untouched
+# Rewrite stdin while preserving code and headings
 pbpaste | voiceprint rewrite
 ```
 
-Useful flags: `--all` shows all eight candidates with scores, `--candidates N` changes how many,
-`--temp` is the polish-vs-variance dial (1.2 cleaner, 1.8 more human and more glitchy), `--voice`
-picks between voices, `--scorer pangram` swaps the ranker if you have a key.
+Useful options:
 
-## Many voices, many models
+- `--all` prints all candidates and their scores.
+- `--candidates N` controls how many candidates to generate.
+- `--temp` controls sampling variance. Lower values are more conservative; higher values vary more
+  and produce more errors.
+- `--voice NAME` selects a trained voice.
+- `--scorer pangram` uses the Pangram ranker and requires `PANGRAM_API_KEY`.
 
-Train as many voices as you like — your own, your newsletter's, a client's you write for:
+## Manage voices and models
 
 ```sh
-voiceprint voices              # list them; * marks the default
-voiceprint use work            # set the default for bare commands
+voiceprint voices
+voiceprint use work
 voiceprint write --voice work "..."
-voiceprint delete old-voice    # forget it, and drop its adapter from your volume
+voiceprint delete old-voice
 ```
 
-Any Hugging Face **base** model works as the foundation:
+Two model presets are included:
+
+| Preset | Model | Notes |
+| --- | --- | --- |
+| `qwen14b` | `Qwen/Qwen2.5-14B` | Default; used for the main evaluation |
+| `qwen7b` | `Qwen/Qwen2.5-7B` | Smaller; measured 0.541 style and 1.000 novelty versus 0.548 and 1.000 for 14B |
+
+List them with `voiceprint models`. You can also pass another Hugging Face base-model ID:
 
 ```sh
-voiceprint models                                   # presets
 voiceprint train ~/writing --name me --model qwen7b
 voiceprint train ~/writing --name me --model someone/Their-Base-7B
 ```
 
-| preset | model | |
-|---|---|---|
-| `qwen14b` | Qwen/Qwen2.5-14B | default; the size the technique was validated at |
-| `qwen7b` | Qwen/Qwen2.5-7B | 0.541 style / 1.000 novelty vs 14b's 0.548 — half the size, no real loss |
+Instruct and chat models are rejected. Each base model gets its own serving container; voices using
+the same base model share that container. Training and serving default to an A100-80GB. To use a
+model that does not fit, change `TRAIN_GPU` and `SERVE_GPU` in `voiceprint/modal_app.py`, then
+redeploy.
 
-Two presets, because those are the two that have been trained and measured. Any other Hugging Face
-base model works by id; it just hasn't been tried here, and a preset nobody has run is a
-recommendation you can't stand behind.
+## MCP setup
 
-Each base model gets its own warm container, so voices sharing a base share one loaded model and
-cost nothing extra. **Instruct and chat models are refused** — they already have a voice, and it
-isn't yours. Everything runs on an A100-80GB, which fits any of this comfortably; a base too big
-for 80 GB means editing `TRAIN_GPU`/`SERVE_GPU` in `modal_app.py` and redeploying.
-
-## Use it from an agent
-
-This is the surface that matters. The model is a *voice*, not a writer — it can't plan, research,
-or keep facts straight. An agent that can do those things drives it:
+An MCP-capable agent can use voiceprint for drafting while it handles planning, research, and fact
+checking.
 
 ```sh
 claude mcp add voiceprint -- /full/path/to/.venv/bin/voiceprint mcp
-cp SKILL.md ~/.claude/skills/voiceprint/SKILL.md      # so it knows how to drive it
+cp SKILL.md ~/.claude/skills/voiceprint/SKILL.md
 ```
 
-(`voiceprint check` prints the exact `claude mcp add` line for your install.)
+`voiceprint check` prints the MCP command for the current installation.
 
-Then ask your agent to write something. It picks one of three workflows — continue what you have,
-outline first, or interview you until it knows what you actually think — and calls the voice model
-section by section. The interview workflow is also how facts get in: things you said out loud go
-into the notes, where the model is conditioned on them instead of inventing them.
+## Evaluate a voice
 
-## Is it working?
-
-```sh
+```console
 $ voiceprint eval me
 voice: me  (5 drafts continuing held-out passages)
   stylometry   0.548   (your own unseen writing: 0.476)
   novelty      1.000   (1.000 = nothing lifted from the training text)
 ```
 
-`eval` continues passages the adapter never saw during training and asks three questions: does it
-sound like you, is it just reciting your corpus, and how does that compare to a real sample of your
-own unseen writing. Novelty below 0.95 means it memorized and the run is bad.
+`eval` continues passages held out during training. The style score measures similarity to the
+corpus; novelty checks whether output repeats the training text. A novelty score below 0.95 suggests
+memorization.
 
-Those are real numbers from a real 8.8k-word corpus, with a caveat worth stating: best-of-N
-*selects* for the style score, so scoring above your own baseline means "picked from eight tries",
-not "more you than you are". Novelty is the number to actually trust.
+The example above comes from an 8,800-word corpus. Because voiceprint selects the best of several
+candidates using the style score, that score should not be compared directly with a single human
+sample. The training default is three epochs: in testing, eight epochs reduced novelty and made
+rewrites less faithful to their input.
 
-The defaults were set by measuring. At 8 epochs the training loss reached 0.000 and the adapter
-began ignoring its input on rewrites — handing back corpus-flavoured prose instead of your text in
-your voice. At 3, novelty went to 1.000, the style score went *up*, and rewrites started preserving
-content.
+## Cost and runtime
 
-## What it costs
+voiceprint does not charge for usage. Modal bills your account for GPU time and storage.
 
-| | |
-|---|---|
-| Train a voice | ~6 minutes of one A100, once per voice |
-| Store an adapter | ~270 MB in your Modal volume |
-| A draft | 3 s warm; 364 s if the container had gone to sleep |
+| Operation | Measured result |
+| --- | --- |
+| Train a voice | About 6 minutes on one A100 |
+| Store an adapter | About 270 MB |
+| Generate a warm draft | About 3 seconds |
+| First draft after idle | 364 seconds in the measured run |
 
-Containers shut down after 10 minutes idle, so a writing session is cheap and leaving it alone
-costs nothing. Nothing is charged by us — you're paying Modal for your own GPU time.
+Training stores base-model weights in a shared Modal volume, so serving does not download them
+again. The long first request after idle is container startup and model loading.
 
-## When something's wrong
+## Troubleshooting
 
-| symptom | what's happening |
-|---|---|
-| `voiceprint isn't deployed to your Modal workspace yet` | run `voiceprint deploy` |
-| first `write` hangs for minutes | cold container downloading the base model; it's warm afterwards |
-| code changes don't take effect after `deploy` | a warm container is still on the old code — `modal app stop voiceprint --yes`, then deploy again |
-| `several voices exist` | pass `--voice`, or set one with `voiceprint use <name>` |
-| `N words of usable prose` when your files look full | outlines, headings, code and tables don't count — only paragraphs |
-| training died with a network error | it didn't; run `voiceprint resume` |
+| Symptom | Fix |
+| --- | --- |
+| `voiceprint isn't deployed to your Modal workspace yet` | Run `voiceprint deploy`. |
+| The first `write` takes several minutes | Wait for the serving container to start and load the model. |
+| Changes do not appear after deployment | Run `modal app stop voiceprint --yes`, then deploy again. |
+| `several voices exist` | Pass `--voice` or run `voiceprint use <name>`. |
+| Files contain text but training reports few usable words | Only prose paragraphs count; outlines, headings, code, and tables are removed. |
+| Training appears to stop after a network error | Run `voiceprint resume`. |
 
 ## Development
 
 ```sh
 uv pip install -e ".[dev]"
-pytest                       # 46 tests, no GPU or network needed
+pytest
 ```
 
-The load-bearing part is `voiceprint/scaffold.py` — the document format and the sampler settings.
-`tests/test_scaffold.py` asserts the prompt a training pair is built from is byte-identical to the
-prompt generation sends; if those drift, output quietly degrades into ordinary AI prose with
-nothing visibly broken.
+The prompt format and sampling defaults live in `voiceprint/scaffold.py`.
+`tests/test_scaffold.py` verifies that training and generation construct prompts the same way.
 
-## Please don't
+## Responsible use
 
-Clone your own voice, or one you have explicit permission to use. Not someone else's, not for
-assignments you're submitting as your own work, not for reviews or accounts pretending to be
-people. See [POLICY.md](POLICY.md).
+Only train on your own voice or a voice you have explicit permission to use. Do not use voiceprint
+for impersonation, deceptive accounts or reviews, or work that must be written without assistance.
+See [POLICY.md](POLICY.md).
 
 MIT licensed.
