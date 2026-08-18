@@ -9,8 +9,6 @@ calls. Nothing here talks to any service of ours, because there isn't one.
 # type object of a class parameter to pick a serializer, and stringized
 # annotations turn `base: str` into the string "str", which it cannot resolve.
 
-import os
-
 import modal
 
 APP_NAME = "voiceprint"
@@ -20,10 +18,10 @@ CACHE_VOLUME = "voiceprint-cache"
 
 PREP_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 
-# A100-80GB fits any base model up to ~14B in bf16. Point this at something
-# bigger before `voiceprint deploy` if you want a bigger base.
-TRAIN_GPU = os.environ.get("VOICEPRINT_GPU", "A100-80GB")
-SERVE_GPU = os.environ.get("VOICEPRINT_GPU", "A100-80GB")
+# Fits every supported base model in bf16 with room for a KV cache. If you ever
+# want a base too big for 80GB, change this and redeploy.
+TRAIN_GPU = "A100-80GB"
+SERVE_GPU = "A100-80GB"
 
 LORA_RANK = 16
 LORA_ALPHA = 32
@@ -64,15 +62,9 @@ serve_image = (
 
 VOLUMES = {"/voices": voices_volume, "/cache": cache_volume}
 
-# Gated models (Llama, Gemma) need a Hugging Face token. Read from the local
-# environment at deploy time, so `export HF_TOKEN=...` before `voiceprint deploy`
-# is the whole setup. Empty is fine — open models don't look at it.
-HF_SECRET = modal.Secret.from_dict({"HF_TOKEN": os.environ.get("HF_TOKEN", "")})
 
 
-@app.function(
-    image=train_image, gpu=TRAIN_GPU, volumes=VOLUMES, secrets=[HF_SECRET], timeout=3600
-)
+@app.function(image=train_image, gpu=TRAIN_GPU, volumes=VOLUMES, timeout=3600)
 def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     """Chunks in, adapter in the volume out.
 
@@ -223,10 +215,7 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     }
 
 
-@app.cls(
-    image=serve_image, gpu=SERVE_GPU, volumes=VOLUMES, secrets=[HF_SECRET],
-    scaledown_window=600, timeout=900,
-)
+@app.cls(image=serve_image, gpu=SERVE_GPU, volumes=VOLUMES, scaledown_window=600, timeout=900)
 class Writer:
     """One resident base model, adapters swapped per request.
 

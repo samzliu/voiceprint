@@ -98,7 +98,6 @@ def main() -> int:
     except (
         corpus.CorpusTooSmall,
         models.NotABaseModel,
-        models.NeedsToken,
         registry.VoiceNotFound,
         remote.NotDeployed,
         FileNotFoundError,

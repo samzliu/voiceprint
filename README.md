@@ -46,7 +46,7 @@ first-draft engine in your voice. You keep it honest.
 Not on PyPI yet. For now:
 
 ```sh
-git clone https://github.com/YOURNAME/voiceprint && cd voiceprint
+git clone https://github.com/samzliu/voice-writer && cd voice-writer
 uv venv && uv pip install -e .        # or: python -m venv .venv && pip install -e .
 ```
 
@@ -145,20 +145,16 @@ voiceprint train ~/writing --name me --model someone/Their-Base-7B
 | preset | model | |
 |---|---|---|
 | `qwen14b` | Qwen/Qwen2.5-14B | default; the size the technique was validated at |
-| `qwen7b` | Qwen/Qwen2.5-7B | measured at 0.541 style / 1.000 novelty vs 14b's 0.548 — half the size, no real loss |
-| `qwen3b` | Qwen/Qwen2.5-3B | cheapest |
-| `llama8b` | meta-llama/Llama-3.1-8B | gated — needs `HF_TOKEN` |
-| `mistral7b` | mistralai/Mistral-7B-v0.3 | |
-| `gemma9b` | google/gemma-2-9b | gated — needs `HF_TOKEN` |
+| `qwen7b` | Qwen/Qwen2.5-7B | 0.541 style / 1.000 novelty vs 14b's 0.548 — half the size, no real loss |
 
-Gated models (Llama, Gemma) need a Hugging Face token: accept the licence on the model page, then
-`export HF_TOKEN=hf_... && voiceprint deploy`. The token is read from your environment at deploy
-time. voiceprint refuses a gated model up front rather than letting you discover it as a 401 in a
-GPU log four minutes later.
+Two presets, because those are the two that have been trained and measured. Any other Hugging Face
+base model works by id; it just hasn't been tried here, and a preset nobody has run is a
+recommendation you can't stand behind.
 
-Each base model gets its own warm container, so voices on the same base share one loaded model and
-cost you nothing extra. **Instruct and chat models are refused** — they already have a voice, and it
-isn't yours. `VOICEPRINT_GPU=H100 voiceprint deploy` if you want a bigger GPU for a bigger base.
+Each base model gets its own warm container, so voices sharing a base share one loaded model and
+cost nothing extra. **Instruct and chat models are refused** — they already have a voice, and it
+isn't yours. Everything runs on an A100-80GB, which fits any of this comfortably; a base too big
+for 80 GB means editing `TRAIN_GPU`/`SERVE_GPU` in `modal_app.py` and redeploying.
 
 ## Use it from an agent
 
