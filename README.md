@@ -149,20 +149,16 @@ Voiceprint's raw output preserves the learned voice most faithfully, but it can 
 grammatical errors. An agent using Voiceprint should label that as **raw mode** and leave the prose
 untouched.
 
-In **edited mode**, limit changes to false facts, spelling, grammar, broken syntax, and accidental
-repetition. Avoid general AI polishing such as smoothing transitions, replacing metaphors,
-tightening rhythm, or restructuring paragraphs; those changes can make the result read more like a
-generic assistant. Regenerate a bad passage from corrected notes instead.
+In **edited mode**, your AI agent may make changes to fix grammatical structure or hallucinations. 
+However, this may make it sound more like AI slop and it may no longer pass AI writing detectors.
 
-Always score the exact final artifact after editing:
+You can score the exact final artifact after editing:
 
 ```sh
 voiceprint score final.md
 voiceprint score final.md --scorer pangram  # requires PANGRAM_API_KEY
 ```
 
-The default score measures similarity to the training corpus. Pangram reports one detector's
-estimated human probability; it does not guarantee the result from other AI detectors.
 
 ## Use it from an agent
 
