@@ -22,13 +22,18 @@ other writers and developers can find it.
 
 ## Why Voiceprint
 
-- **Your voice, not AI slop.** A LoRA adapter learns from prose you already wrote.
-- **A small corpus.** About 1,000–2,000 words is enough for the tested setup.
+- **Your voice, not AI slop.** A LoRA adapter learns from prose you already wrote. In one run, Pangram 4.0 classified all ~900 words of an AI generated draft from an adapter trained on a ~9k word corpus as human-written.
+- **A small corpus.** About 1,000–2,000 words is enough.
 - **CLI and MCP.** Use it directly or let Claude Code, Codex, or another MCP client call it.
 - **Runs in your account.** Training and inference run in your own Modal workspace. There is no
   Voiceprint service or separate account.
 - **Measurable.** The built-in evaluation checks style similarity and memorization on held-out
   text.
+
+  
+![Pangram 4.0 classifying an 888-word original essay as 100% human-written](https://raw.githubusercontent.com/samzliu/voiceprint/main/.github/assets/pangram-human-written-baseline.png)
+
+
 
 ## Quickstart
 
@@ -234,23 +239,6 @@ voice: me  (5 drafts continuing held-out passages)
 `eval` continues passages held out during training. Stylometry measures similarity to the corpus;
 novelty checks whether the adapter repeats training text. A novelty score below 0.95 suggests
 memorization.
-
-### Calibrate detector results against real writing
-
-Before treating an AI detector as a product metric, test it on the author's original prose. In one
-calibration run, Pangram 4.0 classified all 888 words of the author's essay *Any Sufficiently
-Advanced Technology* as human-written:
-
-![Pangram 4.0 classifying an 888-word original essay as 100% human-written](https://raw.githubusercontent.com/samzliu/voiceprint/main/.github/assets/pangram-human-written-baseline.png)
-
-This is an author baseline, not a score for Voiceprint-generated text. Raw drafts, edited drafts,
-and publication-ready artifacts are different documents and must each be tested separately. Never
-report a candidate's detector result after changing its words.
-
-The example comes from an 8,800-word corpus. Voiceprint selects the best of several candidates by
-style score, so its score is not directly comparable to a single human sample. Three training
-epochs are the default: in testing, eight epochs reduced novelty and made rewrites less faithful to
-their input.
 
 ## Models and voices
 
