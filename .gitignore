@@ -3,4 +3,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+!site/build/
+!site/build/sites-vite-plugin.ts
 .pytest_cache/
