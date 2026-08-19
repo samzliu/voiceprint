@@ -12,6 +12,8 @@ export type DraftProposal = {
   mode: "raw" | "edited";
   length: "short" | "medium" | "long";
   notes: string[];
+  preceding_text?: string;
+  text?: string;
 };
 
 type AssistantReply = {
@@ -55,15 +57,24 @@ async function deterministicReply(
   const selected = ready.find((model) => model.id === defaults.model_id) || ready[0];
   const notes = normalizeNotes(message.split(/\n|(?<=[.!?])\s+/));
   if (!notes.length) return { message: "What should the piece say? Give me the facts or points that must be included.", proposal: null };
+  const lower = message.toLowerCase();
+  const inferredLength = /\b(short|brief|concise)\b/.test(lower)
+    ? "short"
+    : /\b(long|detailed|in-depth)\b/.test(lower)
+      ? "long"
+      : defaults.length || "medium";
+  const inferredMode = /\bedited\b/.test(lower) ? "edited" : defaults.mode || "raw";
   return {
     message: "I organized that into a draft request. Review the facts below before the voice model writes.",
     proposal: {
       model_id: selected.id,
       model_name: selected.name,
       operation: defaults.operation || "write",
-      mode: defaults.mode || "raw",
-      length: defaults.length || "medium",
+      mode: inferredMode,
+      length: inferredLength,
       notes,
+      ...(defaults.preceding_text ? { preceding_text: defaults.preceding_text } : {}),
+      ...(defaults.text ? { text: defaults.text } : {}),
     },
   };
 }
@@ -86,6 +97,8 @@ export async function runWritingAssistant(
     ...(body.length === "short" || body.length === "medium" || body.length === "long"
       ? { length: body.length }
       : {}),
+    ...(typeof body.preceding_text === "string" ? { preceding_text: body.preceding_text.slice(0, 30_000) } : {}),
+    ...(typeof body.text === "string" ? { text: body.text.slice(0, 30_000) } : {}),
   };
 
   if (!env.AI_GATEWAY_API_KEY) {
@@ -107,12 +120,18 @@ export async function runWritingAssistant(
       mode: z.enum(["raw", "edited"]),
       length: z.enum(["short", "medium", "long"]),
       notes: z.array(z.string().min(1).max(500)).min(1).max(12),
+      preceding_text: z.string().max(30_000).optional(),
+      text: z.string().max(30_000).optional(),
     }),
     execute: async (input): Promise<DraftProposal> => {
       const model = await env.DB.prepare(
         "SELECT id, name FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
       ).bind(input.model_id, user.id).first<{ id: string; name: string }>();
       if (!model) throw new Error("That model is not ready or does not belong to this writer.");
+      if (input.operation === "rewrite" && !input.text?.trim()) throw new Error("A rewrite needs the source text.");
+      if (input.operation === "continue" && !input.preceding_text?.trim() && !input.notes.length) {
+        throw new Error("A continuation needs preceding text or factual notes.");
+      }
       return { ...input, model_name: model.name, notes: normalizeNotes(input.notes) };
     },
   });

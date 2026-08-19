@@ -42,6 +42,8 @@ type DraftProposal = {
   mode: "raw" | "edited";
   length: "short" | "medium" | "long";
   notes: string[];
+  preceding_text?: string;
+  text?: string;
 };
 
 const ALL_SCOPES = [
@@ -360,6 +362,8 @@ function ModelsView({ models, corpora, onRefresh, onNotice }: { models: Model[];
     try {
       await api("/v1/training-jobs", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ revision_id: revision, name: modelName }) });
       onNotice("Training queued. We’ll email you when the model is ready, within 24 hours.");
+      setEntitled(false);
+      setRevision("");
       await onRefresh();
     } catch (error) { onNotice(error instanceof Error ? error.message : "Could not start training."); }
     setBusy(false);

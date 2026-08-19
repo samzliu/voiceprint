@@ -6,3 +6,4 @@ build/
 !site/build/
 !site/build/sites-vite-plugin.ts
 .pytest_cache/
+.gstack/

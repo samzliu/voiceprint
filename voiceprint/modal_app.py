@@ -419,6 +419,23 @@ def parse_hosted_training(item: object) -> tuple[str, list[dict], str]:
     return name, chunks, model
 
 
+def parse_training_callback(item: object) -> tuple[str, str, str] | None:
+    """Validate the Worker-owned completion callback metadata."""
+    if not isinstance(item, dict):
+        raise ValueError("request must be an object")
+    values = (item.get("callback_url"), item.get("callback_secret"), item.get("job_id"))
+    if all(value is None for value in values):
+        return None
+    callback_url, callback_secret, job_id = values
+    if not isinstance(callback_url, str) or not callback_url.startswith("https://") or len(callback_url) > 500:
+        raise ValueError("invalid callback URL")
+    if not isinstance(callback_secret, str) or len(callback_secret) < 16:
+        raise ValueError("invalid callback secret")
+    if not isinstance(job_id, str) or not job_id.startswith("job_") or len(job_id) > 96:
+        raise ValueError("invalid callback job id")
+    return callback_url, callback_secret, job_id
+
+
 def parse_hosted_generation(item: object) -> dict:
     """Bound every user-controlled generation field before loading an adapter."""
     if not isinstance(item, dict):
@@ -482,8 +499,32 @@ def hosted_train_job(item: dict) -> dict:
     # Preserve an honest held-out slice, matching local training behavior.
     training = [chunk for index, chunk in enumerate(chunks) if index % 7] or chunks
     profile = stylometry.fit([chunk["text"] for chunk in training]).to_dict()
-    result = train_voice.remote(name=name, chunks=training, model=model)
-    return {**result, "profile": profile, "usable_words": sum(chunk["words"] for chunk in chunks)}
+    result = {
+        **train_voice.remote(name=name, chunks=training, model=model),
+        "profile": profile,
+        "usable_words": sum(chunk["words"] for chunk in chunks),
+    }
+    callback = parse_training_callback(item)
+    if callback:
+        import json
+        from urllib.request import Request, urlopen
+
+        callback_url, callback_secret, job_id = callback
+        try:
+            callback = Request(
+                callback_url,
+                data=json.dumps({"job_id": job_id, "result": result}).encode(),
+                headers={
+                    "Authorization": f"Bearer {callback_secret}",
+                    "Content-Type": "application/json",
+                },
+                method="POST",
+            )
+            with urlopen(callback, timeout=30) as response:
+                response.read()
+        except Exception as error:  # Polling remains an idempotent delivery fallback.
+            print(f"training callback delivery failed: {error}")
+    return result
 
 
 @app.function(image=web_image, timeout=60, max_containers=4)
@@ -493,6 +534,7 @@ def hosted_train_start(item: dict) -> dict:
 
     try:
         parse_hosted_training(item)
+        parse_training_callback(item)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     call = hosted_train_job.spawn(item)

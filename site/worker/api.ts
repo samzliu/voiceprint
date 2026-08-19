@@ -21,6 +21,8 @@ export interface AppEnv {
   AI_GATEWAY_API_KEY?: string;
   ROUTER_MODEL?: string;
   ADMIN_EMAILS?: string;
+  PROVIDER_CALLBACK_SECRET?: string;
+  APP_URL?: string;
 }
 
 type User = { id: string; email: string; name: string | null; scopes: string[] };
@@ -71,25 +73,28 @@ async function authenticate(request: Request, env: AppEnv, scopes: string[] = []
     return { id: platformId, email: platformEmail, name: null, scopes: ["*"] };
   }
 
+  const authorization = request.headers.get("authorization");
+  if (authorization) {
+    if (!authorization.startsWith("Bearer vp_")) return null;
+    const keyHash = await digest(authorization.slice(7));
+    const key = await env.DB.prepare(
+      "SELECT owner_id, scopes FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL",
+    ).bind(keyHash).first<{ owner_id: string; scopes: string }>();
+    if (!key) return null;
+    const granted = JSON.parse(key.scopes) as string[];
+    if (scopes.some((scope) => !granted.includes(scope))) return null;
+    await env.DB.prepare("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?")
+      .bind(now(), keyHash).run();
+    const account = await env.DB.prepare("SELECT email, name FROM users WHERE id = ?")
+      .bind(key.owner_id).first<{ email: string; name: string | null }>();
+    if (!account) return null;
+    return { id: key.owner_id, email: account.email, name: account.name, scopes: granted };
+  }
+
   if (env.DEV_AUTH === "1") {
     return { id: "dev_voiceprint_user", email: "beta@voiceprint.local", name: "Beta Writer", scopes: ["*"] };
   }
-
-  const authorization = request.headers.get("authorization");
-  if (!authorization?.startsWith("Bearer vp_")) return null;
-  const keyHash = await digest(authorization.slice(7));
-  const key = await env.DB.prepare(
-    "SELECT owner_id, scopes FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL",
-  ).bind(keyHash).first<{ owner_id: string; scopes: string }>();
-  if (!key) return null;
-  const granted = JSON.parse(key.scopes) as string[];
-  if (scopes.some((scope) => !granted.includes(scope))) return null;
-  await env.DB.prepare("UPDATE api_keys SET last_used_at = ? WHERE key_hash = ?")
-    .bind(now(), keyHash).run();
-  const account = await env.DB.prepare("SELECT email, name FROM users WHERE id = ?")
-    .bind(key.owner_id).first<{ email: string; name: string | null }>();
-  if (!account) return null;
-  return { id: key.owner_id, email: account.email, name: account.name, scopes: granted };
+  return null;
 }
 
 async function upsertUser(env: AppEnv, user: User): Promise<void> {
@@ -410,10 +415,15 @@ async function handleTraining(request: Request, env: AppEnv, user: User): Promis
   const chunks = await snapshot.json<unknown[]>();
 
   if (env.HOSTED_TRAIN_ENDPOINT) {
+    const callbackUrl = env.PROVIDER_CALLBACK_SECRET
+      ? `${new URL(request.url).origin}/v1/provider/training-complete`
+      : undefined;
     const upstream = await callModal(env.HOSTED_TRAIN_ENDPOINT, env, {
       name: modelId,
       chunks,
       model: "Qwen/Qwen2.5-14B",
+      job_id: jobId,
+      ...(callbackUrl ? { callback_url: callbackUrl, callback_secret: env.PROVIDER_CALLBACK_SECRET } : {}),
     });
     const result = await upstream.json() as { call_id?: string; detail?: string };
     if (!upstream.ok || !result.call_id) return failure("training_unavailable", result.detail || "Training could not be queued.", 502);
@@ -574,22 +584,26 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
       result.warning = "Light AI edits may change detector results. Re-score this exact final artifact.";
     }
   }
-  const statements = [
-    env.DB.prepare("UPDATE jobs SET status = 'completed', result = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
-      .bind(JSON.stringify(result), timestamp, jobId, user.id),
-  ];
   if (job.kind === "training" && job.resource_id) {
-    statements.push(env.DB.prepare(
+    const claimed = await env.DB.prepare(
+      "UPDATE jobs SET status = 'completed', result = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND status != 'completed'",
+    ).bind(JSON.stringify(result), timestamp, jobId, user.id).run();
+    await env.DB.prepare(
       "UPDATE models SET status = 'ready', adapter_path = ?, style_profile = ?, trained_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
-    ).bind(result.adapter_path || `/voices/${job.resource_id}`, result.profile ? JSON.stringify(result.profile) : null, timestamp, timestamp, job.resource_id, user.id));
+    ).bind(result.adapter_path || `/voices/${job.resource_id}`, result.profile ? JSON.stringify(result.profile) : null, timestamp, timestamp, job.resource_id, user.id).run();
+    if (claimed.meta.changes > 0) {
+      await sendTrainingEmail(env, user.email, String(job.resource_id), new URL(request.url).origin);
+    }
+  } else {
+    await env.DB.prepare("UPDATE jobs SET status = 'completed', result = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+      .bind(JSON.stringify(result), timestamp, jobId, user.id).run();
   }
-  await env.DB.batch(statements);
-  if (job.kind === "training") await sendTrainingEmail(env, user.email, String(job.resource_id));
   return response({ ...job, status: "completed", result });
 }
 
-async function sendTrainingEmail(env: AppEnv, email: string, modelId: string): Promise<void> {
+async function sendTrainingEmail(env: AppEnv, email: string, modelId: string, requestOrigin: string): Promise<void> {
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return;
+  const appUrl = (env.APP_URL || requestOrigin).replace(/\/$/, "");
   await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
@@ -597,9 +611,43 @@ async function sendTrainingEmail(env: AppEnv, email: string, modelId: string): P
       from: env.EMAIL_FROM,
       to: [email],
       subject: "Your Voiceprint model is ready",
-      html: `<p>Your model is ready to write.</p><p><a href="https://voiceprint.com/beta?model=${encodeURIComponent(modelId)}">Open Voiceprint</a></p>`,
+      html: `<p>Your model is ready to write.</p><p><a href="${appUrl}/beta?model=${encodeURIComponent(modelId)}">Open Voiceprint</a></p>`,
     }),
   });
+}
+
+async function handleTrainingCallback(request: Request, env: AppEnv): Promise<Response> {
+  if (request.method !== "POST") return failure("method_not_allowed", "Method not allowed.", 405);
+  if (!env.PROVIDER_CALLBACK_SECRET) return failure("callback_unavailable", "Provider callback is not configured.", 503);
+  const authorization = request.headers.get("authorization") || "";
+  const expected = await digest(`Bearer ${env.PROVIDER_CALLBACK_SECRET}`);
+  const supplied = await digest(authorization);
+  if (!timingSafeEqual(expected, supplied)) return failure("unauthorized", "Invalid callback signature.", 401);
+
+  const body = await parseJson(request, 1_000_000);
+  const jobId = typeof body.job_id === "string" ? body.job_id : "";
+  const result = body.result && typeof body.result === "object" && !Array.isArray(body.result)
+    ? body.result as JsonObject
+    : null;
+  if (!jobId || !result) return failure("invalid_callback", "A job_id and result are required.", 400);
+  const job = await env.DB.prepare(
+    "SELECT owner_id, resource_id, status FROM jobs WHERE id = ? AND kind = 'training'",
+  ).bind(jobId).first<{ owner_id: string; resource_id: string; status: string }>();
+  if (!job) return failure("not_found", "Training job not found.", 404);
+  if (job.status === "completed") return response({ received: true, duplicate: true });
+
+  const account = await env.DB.prepare("SELECT email FROM users WHERE id = ?")
+    .bind(job.owner_id).first<{ email: string }>();
+  const timestamp = now();
+  const claimed = await env.DB.prepare(
+    "UPDATE jobs SET status = 'completed', result = ?, error = NULL, updated_at = ? WHERE id = ? AND status != 'completed'",
+  ).bind(JSON.stringify(result), timestamp, jobId).run();
+  if (claimed.meta.changes === 0) return response({ received: true, duplicate: true });
+  await env.DB.prepare(
+    "UPDATE models SET status = 'ready', adapter_path = ?, style_profile = ?, trained_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?",
+  ).bind(result.adapter_path || `/voices/${job.resource_id}`, result.profile ? JSON.stringify(result.profile) : null, timestamp, timestamp, job.resource_id, job.owner_id).run();
+  if (account) await sendTrainingEmail(env, account.email, job.resource_id, new URL(request.url).origin);
+  return response({ received: true });
 }
 
 async function handleStripeWebhook(request: Request, env: AppEnv): Promise<Response> {
@@ -682,6 +730,9 @@ export async function handleApi(request: Request, env: AppEnv): Promise<Response
 
   if (url.pathname === "/v1/webhooks/stripe" && request.method === "POST") {
     return handleStripeWebhook(request, env);
+  }
+  if (url.pathname === "/v1/provider/training-complete") {
+    return handleTrainingCallback(request, env);
   }
 
   const authenticated = await requireUser(request, env, requiredScopes(url.pathname, request.method));

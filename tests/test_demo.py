@@ -4,6 +4,7 @@ from voiceprint.modal_app import (
     parse_demo_brief,
     parse_hosted_generation,
     parse_hosted_training,
+    parse_training_callback,
 )
 
 
@@ -43,6 +44,33 @@ def test_hosted_training_recomputes_word_counts():
 def test_hosted_training_blocks_too_few_real_words():
     with pytest.raises(ValueError, match="1,000 usable words"):
         parse_hosted_training({"name": "model_abc", "chunks": _hosted_chunks(999)})
+
+
+def test_training_callback_accepts_signed_https_target():
+    assert parse_training_callback(
+        {
+            "callback_url": "https://voiceprint.example/v1/provider/training-complete",
+            "callback_secret": "a-secure-callback-secret",
+            "job_id": "job_abc",
+        }
+    ) == (
+        "https://voiceprint.example/v1/provider/training-complete",
+        "a-secure-callback-secret",
+        "job_abc",
+    )
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"callback_url": "http://localhost/callback", "callback_secret": "a-secure-callback-secret", "job_id": "job_abc"},
+        {"callback_url": "https://voiceprint.example/callback", "callback_secret": "short", "job_id": "job_abc"},
+        {"callback_url": "https://voiceprint.example/callback", "callback_secret": "a-secure-callback-secret", "job_id": "other"},
+    ],
+)
+def test_training_callback_rejects_unsafe_metadata(metadata):
+    with pytest.raises(ValueError, match="callback"):
+        parse_training_callback(metadata)
 
 
 def test_hosted_generation_requires_adapter_owned_path_shape():

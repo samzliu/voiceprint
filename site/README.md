@@ -19,12 +19,17 @@ VOICEPRINT_DEV_AUTH=1 npm run dev
 `VOICEPRINT_DEV_AUTH=1` creates an isolated local beta writer. Production must never
 set `DEV_AUTH=1`.
 
+For local provider testing, prefix each production binding with `VOICEPRINT_`
+(for example, `VOICEPRINT_PROVIDER_CALLBACK_SECRET`). These values are passed only
+to the local Worker runtime; `.env*` files remain ignored.
+
 Production bindings and secrets:
 
 - D1 binding `DB` and R2 binding `FILES`
 - public demo: `MODAL_ENDPOINT`, `MODAL_RESULT_ENDPOINT`, `MODAL_KEY`, `MODAL_SECRET`
 - beta training: `HOSTED_TRAIN_ENDPOINT`, `HOSTED_TRAIN_RESULT_ENDPOINT`
 - beta generation: `HOSTED_GENERATE_ENDPOINT`, `HOSTED_GENERATE_RESULT_ENDPOINT`
+- signed training completion: `PROVIDER_CALLBACK_SECRET` (16+ random characters), `APP_URL`
 - checkout: `STRIPE_SECRET_KEY`, `STRIPE_TRAINING_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`
 - guided requests and edited mode: `AI_GATEWAY_API_KEY`; optional `ROUTER_MODEL`
 - completion email: `RESEND_API_KEY`, `EMAIL_FROM`
