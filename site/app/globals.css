@@ -142,7 +142,7 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
   .loading-line { animation: none; }
 }
 
-/* Private beta workspace */
+/* Beta workspace */
 .beta-loading, .beta-auth { min-height: 100vh; }
 .beta-loading { display: grid; place-content: center; text-align: center; font: 11px var(--mono); letter-spacing: .08em; }
 .beta-loading span { font-weight: 900; font-size: 18px; }
@@ -242,6 +242,16 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
 .model-list h3 { margin: 0 0 5px; font: 24px var(--serif); }
 .model-list p { margin: 0; color: var(--muted); font: 9px var(--mono); }
 
+.credit-store { display: grid; grid-template-columns: 1fr auto auto; align-items: end; gap: 24px; padding: 20px 24px; border: 1px solid var(--ink); border-top: 0; background: var(--signal); }
+.credit-store > div { display: grid; gap: 6px; }
+.credit-store span, .credit-store label { font: 700 9px var(--mono); letter-spacing: .06em; }
+.credit-store b { font: 28px var(--serif); }
+.credit-store label { display: grid; gap: 7px; }
+.credit-store select, .credit-store button { min-height: 42px; border: 1px solid var(--ink); background: var(--white); font: 10px var(--mono); }
+.credit-store select { min-width: 130px; padding: 0 10px; }
+.credit-store button { padding: 0 18px; cursor: pointer; }
+.credit-store button:disabled { opacity: .5; cursor: not-allowed; }
+
 .composer { display: grid; grid-template-columns: .8fr 1.2fr; min-height: 690px; border: 1px solid var(--ink); border-top: 0; }
 .composer-controls { min-width: 0; background: var(--white); border-right: 1px solid var(--ink); }
 .composer form { padding: 28px; display: flex; flex-direction: column; gap: 24px; background: var(--white); }
@@ -291,6 +301,8 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
   .training-builder { grid-template-columns: 1fr; }
   .training-builder > div { min-height: 240px; border-right: 0; border-bottom: 1px solid var(--ink); }
   .composer, .api-grid { grid-template-columns: 1fr; }
+  .credit-store { grid-template-columns: 1fr 1fr; }
+  .credit-store button { grid-column: 1 / -1; }
   .composer-controls { border-right: 0; border-bottom: 1px solid var(--ink); }
   .api-grid > section + section { border-left: 0; border-top: 1px solid var(--ink); }
 }

@@ -42,6 +42,7 @@ account's existing entitlements but cannot initiate a purchase.
 | `assistant.prepare` | `POST /v1/assistant` | Tool-using planner; never writes prose or spends a credit |
 | `score.final` | `POST /v1/scores` | Scores the exact supplied artifact |
 | `billing.balance` | `GET /v1/credits` | Read-only during beta |
+| `billing.buy_credits` | `POST /v1/checkout/credits` | Browser session only; buys 20-credit increments |
 
 ## Corpus readiness
 

@@ -24,7 +24,7 @@ test("server-renders the Voiceprint demo", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
-test("server-renders the private beta shell", async () => {
+test("server-renders the beta shell", async () => {
   const response = await render("/beta");
   assert.equal(response.status, 200);
   const html = await response.text();
@@ -45,6 +45,6 @@ test("server-renders the protected operations shell", async () => {
   const response = await render("/admin");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /PRIVATE BETA \/ OPERATIONS/i);
+  assert.match(html, /BETA \/ OPERATIONS/i);
   assert.match(html, /Loading beta operations/i);
 });

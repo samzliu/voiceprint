@@ -9,6 +9,7 @@ export interface AppEnv {
   DEV_AUTH?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_TRAINING_PRICE_ID?: string;
+  STRIPE_CREDIT_PRICE_ID?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   MODAL_KEY?: string;
   MODAL_SECRET?: string;
@@ -32,6 +33,7 @@ const JSON_HEADERS = { "cache-control": "no-store", "content-type": "application
 const MAX_ITEM_BYTES = 2_000_000;
 const MAX_CORPUS_BYTES = 20_000_000;
 const TRAINING_PRICE_CENTS = 2_000;
+const CREDIT_PACK_SIZE = 20;
 
 function response(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });
@@ -383,6 +385,44 @@ async function handleCheckout(request: Request, env: AppEnv, user: User): Promis
   return response({ url: result.url });
 }
 
+async function handleCreditCheckout(request: Request, env: AppEnv, user: User): Promise<Response> {
+  if (request.method !== "POST") return failure("method_not_allowed", "Method not allowed.", 405);
+  const body = await parseJson(request, 10_000);
+  const packs = Number(body.packs);
+  if (![1, 2, 5].includes(packs)) return failure("invalid_credit_pack", "Choose 20, 40, or 100 credits.", 400);
+  const credits = packs * CREDIT_PACK_SIZE;
+  if (env.DEV_AUTH === "1" && (!env.STRIPE_SECRET_KEY || !env.STRIPE_CREDIT_PRICE_ID)) {
+    const referenceId = id("credit_purchase");
+    await env.DB.prepare(
+      "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, ?, 'credit_purchase', ?, ?)",
+    ).bind(id("credit"), user.id, credits, referenceId, now()).run();
+    return response({ granted: true, generation_credits: credits });
+  }
+  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_CREDIT_PRICE_ID) {
+    return failure("billing_unavailable", "Generation-credit checkout is not configured yet.", 503);
+  }
+  const origin = new URL(request.url).origin;
+  const form = new URLSearchParams({
+    mode: "payment",
+    "line_items[0][price]": env.STRIPE_CREDIT_PRICE_ID,
+    "line_items[0][quantity]": String(packs),
+    success_url: `${origin}/beta?checkout=credits-success`,
+    cancel_url: `${origin}/beta?checkout=cancelled`,
+    client_reference_id: user.id,
+    "metadata[owner_id]": user.id,
+    "metadata[kind]": "credits",
+    "metadata[credits]": String(credits),
+  });
+  const stripe = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "content-type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+  const result = await stripe.json() as { url?: string; error?: { message?: string } };
+  if (!stripe.ok || !result.url) return failure("checkout_failed", result.error?.message || "Checkout could not start.", 502);
+  return response({ url: result.url });
+}
+
 async function handleTraining(request: Request, env: AppEnv, user: User): Promise<Response> {
   if (request.method !== "POST") return failure("method_not_allowed", "Method not allowed.", 405);
   const body = await parseJson(request, 20_000);
@@ -662,20 +702,32 @@ async function handleStripeWebhook(request: Request, env: AppEnv): Promise<Respo
   const signed = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${raw}`));
   const expected = Array.from(new Uint8Array(signed), (byte) => byte.toString(16).padStart(2, "0")).join("");
   if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return failure("invalid_signature", "Invalid webhook signature.", 400);
-  const event = JSON.parse(raw) as { type?: string; data?: { object?: { id?: string; metadata?: Record<string, string> } } };
-  if (event.type === "checkout.session.completed") {
+  const event = JSON.parse(raw) as {
+    type?: string;
+    data?: { object?: { id?: string; payment_status?: string; metadata?: Record<string, string> } };
+  };
+  if (["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(event.type || "")) {
     const session = event.data?.object;
     const ownerId = session?.metadata?.owner_id;
-    if (ownerId && session?.id) {
+    if (ownerId && session?.id && session.payment_status === "paid") {
       const timestampNow = now();
-      await env.DB.batch([
-        env.DB.prepare(
-          "INSERT INTO entitlements (id, owner_id, kind, status, stripe_session_id, created_at, updated_at) SELECT ?, ?, 'training', 'available', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM entitlements WHERE stripe_session_id = ?)",
-        ).bind(id("entitlement"), ownerId, session.id, timestampNow, timestampNow, session.id),
-        env.DB.prepare(
-          "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) SELECT ?, ?, 20, 'training_bundle', ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE owner_id = ? AND kind = 'training_bundle' AND reference_id = ?)",
-        ).bind(id("credit"), ownerId, session.id, timestampNow, ownerId, session.id),
-      ]);
+      if (session.metadata?.kind === "training") {
+        await env.DB.batch([
+          env.DB.prepare(
+            "INSERT INTO entitlements (id, owner_id, kind, status, stripe_session_id, created_at, updated_at) SELECT ?, ?, 'training', 'available', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM entitlements WHERE stripe_session_id = ?)",
+          ).bind(id("entitlement"), ownerId, session.id, timestampNow, timestampNow, session.id),
+          env.DB.prepare(
+            "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) SELECT ?, ?, 20, 'training_bundle', ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE owner_id = ? AND kind = 'training_bundle' AND reference_id = ?)",
+          ).bind(id("credit"), ownerId, session.id, timestampNow, ownerId, session.id),
+        ]);
+      } else if (session.metadata?.kind === "credits") {
+        const credits = Number(session.metadata.credits);
+        if ([20, 40, 100].includes(credits)) {
+          await env.DB.prepare(
+            "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) SELECT ?, ?, ?, 'credit_purchase', ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE owner_id = ? AND kind = 'credit_purchase' AND reference_id = ?)",
+          ).bind(id("credit"), ownerId, credits, session.id, timestampNow, ownerId, session.id).run();
+        }
+      }
     }
   }
   return response({ received: true });
@@ -691,7 +743,7 @@ async function handleAdmin(request: Request, env: AppEnv, user: User): Promise<R
     env.DB.prepare("SELECT id, owner_id, kind, status, resource_id, error, created_at, updated_at FROM jobs ORDER BY updated_at DESC LIMIT 100").all(),
     env.DB.prepare("SELECT COALESCE(SUM(delta), 0) AS value FROM credit_ledger").first<{ value: number }>(),
   ]);
-  return response({ users: Number(users?.value || 0), models: models.results, jobs: jobs.results, outstanding_credits: Number(credits?.value || 0), beta_capacity: 25 });
+  return response({ users: Number(users?.value || 0), models: models.results, jobs: jobs.results, outstanding_credits: Number(credits?.value || 0) });
 }
 
 function requiredScopes(pathname: string, method: string): string[] {
@@ -739,7 +791,7 @@ export async function handleApi(request: Request, env: AppEnv): Promise<Response
   if (isResponse(authenticated)) return authenticated;
   const user = authenticated;
 
-  if (["/v1/me", "/v1/checkout/training", "/v1/api-keys", "/v1/admin/overview", "/v1/dev/seed"].includes(url.pathname) && !user.scopes.includes("*")) {
+  if (["/v1/me", "/v1/checkout/training", "/v1/checkout/credits", "/v1/api-keys", "/v1/admin/overview", "/v1/dev/seed"].includes(url.pathname) && !user.scopes.includes("*")) {
     return failure("session_required", "Use the signed-in workspace for this endpoint.", 403);
   }
 
@@ -749,6 +801,7 @@ export async function handleApi(request: Request, env: AppEnv): Promise<Response
   if (url.pathname === "/v1/credits" && request.method === "GET") return response({ balance: await balance(env, user.id) });
   if (url.pathname === "/v1/training-quotes" && request.method === "POST") return response({ currency: "usd", amount: TRAINING_PRICE_CENTS, includes_generation_credits: 20 });
   if (url.pathname === "/v1/checkout/training") return handleCheckout(request, env, user);
+  if (url.pathname === "/v1/checkout/credits") return handleCreditCheckout(request, env, user);
   if (url.pathname === "/v1/training-jobs") return handleTraining(request, env, user);
   if (url.pathname === "/v1/generations") return handleGeneration(request, env, user);
   if (url.pathname === "/v1/assistant") return handleAssistant(request, env, user);

@@ -128,7 +128,7 @@ export function BetaWorkspace() {
       <main className="beta-auth">
         <Link className="wordmark" href="/">VOICEPRINT<span className="wordmark-dot">●</span></Link>
         <section>
-          <p className="eyebrow">PRIVATE BETA · 25 WRITERS</p>
+          <p className="eyebrow">VOICEPRINT BETA</p>
           <h1>Your writing model<br />starts with your writing.</h1>
           <p>Sign in, bring a few pages of prose you wrote, and Voiceprint will verify the corpus before you spend anything.</p>
           <a className="button beta-signin" href="/signin-with-chatgpt?return_to=%2Fbeta">SIGN IN WITH CHATGPT <span>→</span></a>
@@ -391,6 +391,23 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
   const [assistantRequest, setAssistantRequest] = useState("");
   const [assistantMessage, setAssistantMessage] = useState("");
   const [proposal, setProposal] = useState<DraftProposal | null>(null);
+  const [creditPacks, setCreditPacks] = useState(1);
+
+  async function buyCredits() {
+    setBusy(true);
+    try {
+      const checkout = await api<{ url?: string; granted?: boolean; generation_credits?: number }>("/v1/checkout/credits", {
+        method: "POST",
+        body: JSON.stringify({ packs: creditPacks }),
+      });
+      if (checkout.url) window.location.assign(checkout.url);
+      else if (checkout.granted) {
+        await onRefresh();
+        onNotice(`${checkout.generation_credits || creditPacks * 20} generation credits added.`);
+      }
+    } catch (error) { onNotice(error instanceof Error ? error.message : "Could not start credit checkout."); }
+    setBusy(false);
+  }
 
   async function requestDraft(input: DraftProposal) {
     setBusy(true); setDraft("");
@@ -431,6 +448,7 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
 
   return <div className="workspace-view write-view">
     <header className="workspace-header"><div><p className="eyebrow">03 / WRITE</p><h1>Facts in.<br />Your voice out.</h1></div><p>The assistant organizes the request. Your adapter writes the prose. Nothing silently polishes the result afterward.</p></header>
+    <section className="credit-store"><div><span>GENERATION BALANCE</span><b>{credits} credits</b></div><label>ADD CREDITS<select value={creditPacks} onChange={(event) => setCreditPacks(Number(event.target.value))}><option value={1}>20 credits</option><option value={2}>40 credits</option><option value={5}>100 credits</option></select></label><button onClick={() => void buyCredits()} disabled={busy}>BUY CREDITS →</button></section>
     {!ready.length ? <div className="empty-work"><b>NO READY MODEL</b><p>Train a model first. We’ll email you when it is ready.</p></div> : <div className="composer">
       <div className="composer-controls">
         <form className="assistant-card" onSubmit={askAssistant}>

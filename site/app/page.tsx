@@ -19,7 +19,7 @@ export default function Home() {
           VOICEPRINT<span className="wordmark-dot">●</span>
         </a>
         <div className="nav-links">
-          <a href="/beta">Private beta →</a>
+          <a href="/beta">Beta workspace →</a>
           <a href="https://github.com/samzliu/voiceprint">GitHub ↗</a>
           <a href="https://pypi.org/project/voiceprint/">PyPI ↗</a>
         </div>

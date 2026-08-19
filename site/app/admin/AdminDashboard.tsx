@@ -5,7 +5,6 @@ import Link from "next/link";
 
 type Overview = {
   users: number;
-  beta_capacity: number;
   outstanding_credits: number;
   models: Array<{ status: string; value: number }>;
   jobs: Array<{ id: string; owner_id: string; kind: string; status: string; error?: string; updated_at: string }>;
@@ -27,10 +26,10 @@ export function AdminDashboard() {
 
   return <main className="admin-page">
     <nav><Link className="wordmark" href="/">VOICEPRINT<span className="wordmark-dot">●</span></Link><Link href="/beta">WORKSPACE →</Link></nav>
-    <header><p className="eyebrow">PRIVATE BETA / OPERATIONS</p><h1>Twenty-five writers.<br />Every job visible.</h1></header>
+    <header><p className="eyebrow">BETA / OPERATIONS</p><h1>Every writer.<br />Every job visible.</h1></header>
     {error ? <section className="admin-error"><b>ACCESS UNAVAILABLE</b><p>{error}</p></section> : !overview ? <p>Loading beta operations…</p> : <>
       <section className="admin-metrics">
-        <article><span>WRITERS</span><b>{overview.users}/{overview.beta_capacity}</b></article>
+        <article><span>WRITERS</span><b>{overview.users}</b></article>
         <article><span>OUTSTANDING CREDITS</span><b>{overview.outstanding_credits}</b></article>
         <article><span>MODELS</span><b>{overview.models.reduce((sum, item) => sum + Number(item.value), 0)}</b></article>
       </section>

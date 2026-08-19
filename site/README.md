@@ -1,6 +1,6 @@
 # Voiceprint site
 
-The public demo and protected 25-writer beta for [Voiceprint](https://github.com/samzliu/voiceprint).
+The public demo and signed-in beta workspace for [Voiceprint](https://github.com/samzliu/voiceprint).
 
 It is a vinext application deployed on Sites. The Worker at `worker/index.ts`
 enforces public-demo quotas and the beta capability API in D1. Corpora and immutable
@@ -30,7 +30,7 @@ Production bindings and secrets:
 - beta training: `HOSTED_TRAIN_ENDPOINT`, `HOSTED_TRAIN_RESULT_ENDPOINT`
 - beta generation: `HOSTED_GENERATE_ENDPOINT`, `HOSTED_GENERATE_RESULT_ENDPOINT`
 - signed training completion: `PROVIDER_CALLBACK_SECRET` (16+ random characters), `APP_URL`
-- checkout: `STRIPE_SECRET_KEY`, `STRIPE_TRAINING_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`
+- checkout: `STRIPE_SECRET_KEY`, `STRIPE_TRAINING_PRICE_ID`, `STRIPE_CREDIT_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`
 - guided requests and edited mode: `AI_GATEWAY_API_KEY`; optional `ROUTER_MODEL`
 - completion email: `RESEND_API_KEY`, `EMAIL_FROM`
 - operations: comma-separated `ADMIN_EMAILS`
