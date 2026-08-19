@@ -4,8 +4,9 @@ This is the beta contract for the hosted Voiceprint service. The browser app, gu
 and public API call the same capability layer. A capability must not have different validation,
 billing, or authorization behavior depending on which surface invoked it.
 
-The hosted API is under construction. The local MCP tools and CLI remain the working interfaces
-until the corresponding `/v1` endpoints are deployed.
+The hosted API is implemented in the Sites worker. Provider credentials and production bindings
+must be configured before training, generation, checkout, email, and the guided assistant become
+available on a deployment. The local MCP tools and CLI remain supported interfaces.
 
 ## Authentication
 
@@ -16,7 +17,7 @@ Authorization: Bearer vp_live_...
 ```
 
 Keys are shown once, stored hashed, revocable, and scoped. Initial scopes are `corpora:read`,
-`corpora:write`, `models:read`, `models:write`, `generate`, and `scores:write`.
+`corpora:write`, `models:read`, `models:write`, `generate`, `jobs:read`, and `scores:write`.
 
 Payment checkout stays in the browser during the beta. API clients may inspect and consume an
 account's existing entitlements but cannot initiate a purchase.
@@ -27,20 +28,18 @@ account's existing entitlements but cannot initiate a purchase.
 | --- | --- | --- |
 | `corpus.create` | `POST /v1/corpora` | Creates metadata only |
 | `corpus.add_text` | `POST /v1/corpora/{id}/text` | Adds pasted text |
-| `corpus.prepare_upload` | `POST /v1/corpora/{id}/uploads` | Returns signed upload targets |
 | `corpus.inspect` | `POST /v1/corpora/{id}/inspect` | Deterministic; never starts a GPU |
 | `corpus.create_revision` | `POST /v1/corpora/{id}/revisions` | Freezes the accepted training input |
+| `corpus.delete_item` | `DELETE /v1/corpora/{id}/items/{item_id}` | Re-runs readiness after deletion |
 | `training.quote` | `POST /v1/training-quotes` | Returns the current price and entitlement |
 | `training.start` | `POST /v1/training-jobs` | Requires a ready immutable revision |
-| `training.status` | `GET /v1/training-jobs/{id}` | Asynchronous job status |
-| `training.cancel` | `POST /v1/training-jobs/{id}/cancel` | Explicit confirmation required |
+| `job.status` | `GET /v1/jobs/{id}` | Training or generation job status |
 | `models.list` | `GET /v1/models` | Models are independent from corpora |
-| `models.get` | `GET /v1/models/{id}` | Includes readiness and serving state |
 | `models.delete` | `DELETE /v1/models/{id}` | Explicit confirmation required |
 | `generate.write` | `POST /v1/generations` | `operation=write` |
 | `generate.continue` | `POST /v1/generations` | `operation=continue` |
 | `generate.rewrite` | `POST /v1/generations` | `operation=rewrite` |
-| `generation.status` | `GET /v1/generations/{id}` | Warm or cold async result |
+| `assistant.prepare` | `POST /v1/assistant` | Tool-using planner; never writes prose or spends a credit |
 | `score.final` | `POST /v1/scores` | Scores the exact supplied artifact |
 | `billing.balance` | `GET /v1/credits` | Read-only during beta |
 
@@ -76,12 +75,9 @@ not block the user. The service never edits corpus prose.
 ## Asynchronous jobs
 
 Training and cold generation return `202 Accepted` with a resource ID and `Location` header.
-Clients may poll that URL or subscribe to signed webhooks:
-
-- `training.ready`
-- `training.failed`
-- `generation.completed`
-- `generation.failed`
+Clients poll the returned `Location` URL. Signed outbound webhooks are intentionally deferred
+until delivery retries and secret encryption are implemented; the beta does not expose a partial
+webhook contract.
 
 Every job-creating or credit-consuming request accepts an `Idempotency-Key`. Retrying the same key
 returns the original resource and never consumes another entitlement.

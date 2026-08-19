@@ -1,11 +1,11 @@
-# Voiceprint demo
+# Voiceprint site
 
-The public, rate-limited demo for [Voiceprint](https://github.com/samzliu/voiceprint).
+The public demo and protected 25-writer beta for [Voiceprint](https://github.com/samzliu/voiceprint).
 
 It is a vinext application deployed on Sites. The Worker at `worker/index.ts`
-enforces both per-IP and global daily quotas in D1, then calls an authenticated
-Modal endpoint. Modal credentials live in the hosting environment, never in the
-browser or repository.
+enforces public-demo quotas and the beta capability API in D1. Corpora and immutable
+training revisions live in R2. Modal credentials and all other secrets live in the
+hosting environment, never in the browser or repository.
 
 ## Develop
 
@@ -13,20 +13,35 @@ Requires Node.js 22.13 or newer.
 
 ```bash
 npm ci
-npm run dev
+VOICEPRINT_DEV_AUTH=1 npm run dev
 ```
 
-The live generation route also needs these local environment variables:
+`VOICEPRINT_DEV_AUTH=1` creates an isolated local beta writer. Production must never
+set `DEV_AUTH=1`.
 
-- `MODAL_ENDPOINT`
-- `MODAL_KEY`
-- `MODAL_SECRET`
+Production bindings and secrets:
+
+- D1 binding `DB` and R2 binding `FILES`
+- public demo: `MODAL_ENDPOINT`, `MODAL_RESULT_ENDPOINT`, `MODAL_KEY`, `MODAL_SECRET`
+- beta training: `HOSTED_TRAIN_ENDPOINT`, `HOSTED_TRAIN_RESULT_ENDPOINT`
+- beta generation: `HOSTED_GENERATE_ENDPOINT`, `HOSTED_GENERATE_RESULT_ENDPOINT`
+- checkout: `STRIPE_SECRET_KEY`, `STRIPE_TRAINING_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`
+- guided requests and edited mode: `AI_GATEWAY_API_KEY`; optional `ROUTER_MODEL`
+- completion email: `RESEND_API_KEY`, `EMAIL_FROM`
+- operations: comma-separated `ADMIN_EMAILS`
+
+The current verified default router is `openai/gpt-5.6-luna`. Override it with a
+current AI Gateway model ID without changing application code.
 
 ## Verify
 
 ```bash
 npm run lint
 npm test
+npx tsc --noEmit
 ```
 
-`npm test` builds the production Worker and verifies the server-rendered page.
+`npm test` builds the production Worker and verifies all server-rendered routes.
+`npm audit --omit=dev` should report zero production advisories. The remaining
+development-only audit entries originate in `drizzle-kit`'s legacy code-generation
+loader; it is not bundled into the Worker.

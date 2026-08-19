@@ -64,7 +64,7 @@ serve_image = (
 
 web_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install("fastapi[standard]")
+    .pip_install("fastapi[standard]", "numpy>=1.26")
     .add_local_python_source("voiceprint")
 )
 
@@ -371,6 +371,216 @@ def demo_result(item: dict):
     from fastapi.responses import JSONResponse
 
     call_id = item.get("call_id")
+    if not isinstance(call_id, str) or not call_id.startswith("fc-"):
+        raise HTTPException(status_code=400, detail="invalid job id")
+    try:
+        return modal.FunctionCall.from_id(call_id).get(timeout=0)
+    except TimeoutError:
+        return JSONResponse(status_code=202, content={"status": "pending"})
+
+
+HOSTED_MODELS = {PUBLIC_DEMO_MODEL}
+HOSTED_MIN_WORDS = 1_000
+
+
+def parse_hosted_training(item: object) -> tuple[str, list[dict], str]:
+    """Validate paid training before a queued job can reserve a GPU."""
+    if not isinstance(item, dict):
+        raise ValueError("request must be an object")
+    name = item.get("name")
+    if not isinstance(name, str) or not name.startswith("model_") or len(name) > 96:
+        raise ValueError("invalid model name")
+    model = item.get("model", PUBLIC_DEMO_MODEL)
+    if model not in HOSTED_MODELS:
+        raise ValueError("unsupported base model")
+    incoming = item.get("chunks")
+    if not isinstance(incoming, list) or len(incoming) > 500:
+        raise ValueError("chunks must be a list of no more than 500 passages")
+
+    chunks = []
+    total_words = 0
+    for index, value in enumerate(incoming):
+        if not isinstance(value, dict):
+            raise ValueError(f"chunk {index + 1} must be an object")
+        text = value.get("text")
+        source = value.get("source", f"document-{index + 1}")
+        if not isinstance(text, str) or not text.strip() or len(text) > 20_000:
+            raise ValueError(f"chunk {index + 1} has invalid text")
+        words = len(text.split())
+        if words < 25:
+            raise ValueError(f"chunk {index + 1} is too short")
+        if not isinstance(source, str):
+            source = f"document-{index + 1}"
+        length = "short" if words <= 120 else "medium" if words <= 500 else "long"
+        chunks.append({"text": text.strip(), "words": words, "length": length, "source": source[:240]})
+        total_words += words
+    if total_words < HOSTED_MIN_WORDS:
+        raise ValueError(f"at least {HOSTED_MIN_WORDS:,} usable words are required")
+    return name, chunks, model
+
+
+def parse_hosted_generation(item: object) -> dict:
+    """Bound every user-controlled generation field before loading an adapter."""
+    if not isinstance(item, dict):
+        raise ValueError("request must be an object")
+    adapter_path = item.get("adapter_path")
+    model = item.get("provider_model", PUBLIC_DEMO_MODEL)
+    if (
+        not isinstance(adapter_path, str)
+        or not adapter_path.startswith("/voices/model_")
+        or ".." in adapter_path
+        or len(adapter_path) > 120
+    ):
+        raise ValueError("invalid adapter path")
+    if model not in HOSTED_MODELS:
+        raise ValueError("unsupported base model")
+    operation = item.get("operation", "write")
+    if operation not in {"write", "continue", "rewrite"}:
+        raise ValueError("operation must be write, continue, or rewrite")
+    length = item.get("length", "medium")
+    if length not in {"short", "medium", "long"}:
+        raise ValueError("length must be short, medium, or long")
+
+    notes = item.get("notes", [])
+    if not isinstance(notes, list) or len(notes) > 12 or any(not isinstance(note, str) for note in notes):
+        raise ValueError("notes must contain no more than 12 text items")
+    notes = [note.strip()[:500] for note in notes if note.strip()]
+    preceding = item.get("preceding_text", "")
+    draft = item.get("text", "")
+    if not isinstance(preceding, str) or len(preceding) > 30_000:
+        raise ValueError("preceding_text is too long")
+    if not isinstance(draft, str) or len(draft) > 30_000:
+        raise ValueError("text is too long")
+    if operation == "write" and not notes:
+        raise ValueError("write requires at least one factual note")
+    if operation == "continue" and not notes and not preceding.strip():
+        raise ValueError("continue requires notes or preceding text")
+    if operation == "rewrite" and not draft.strip():
+        raise ValueError("rewrite requires source text")
+    profile = item.get("style_profile")
+    if not isinstance(profile, dict):
+        raise ValueError("style profile is required")
+    return {
+        "adapter_path": adapter_path,
+        "provider_model": model,
+        "operation": operation,
+        "length": length,
+        "notes": notes,
+        "preceding_text": preceding.strip(),
+        "text": draft.strip(),
+        "style_profile": profile,
+        "mode": "edited" if item.get("mode") == "edited" else "raw",
+    }
+
+
+@app.function(image=web_image, timeout=3700, max_containers=4)
+def hosted_train_job(item: dict) -> dict:
+    """Fit the profile and adapter in a durable queued job."""
+    from voiceprint import stylometry
+
+    name, chunks, model = parse_hosted_training(item)
+    # Preserve an honest held-out slice, matching local training behavior.
+    training = [chunk for index, chunk in enumerate(chunks) if index % 7] or chunks
+    profile = stylometry.fit([chunk["text"] for chunk in training]).to_dict()
+    result = train_voice.remote(name=name, chunks=training, model=model)
+    return {**result, "profile": profile, "usable_words": sum(chunk["words"] for chunk in chunks)}
+
+
+@app.function(image=web_image, timeout=60, max_containers=4)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def hosted_train_start(item: dict) -> dict:
+    from fastapi import HTTPException
+
+    try:
+        parse_hosted_training(item)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    call = hosted_train_job.spawn(item)
+    return {"call_id": call.object_id}
+
+
+@app.function(image=web_image, timeout=60, max_containers=4)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def hosted_train_result(item: dict):
+    return _hosted_result(item)
+
+
+@app.function(image=web_image, timeout=1000, max_containers=8)
+def hosted_generate_job(item: dict) -> dict:
+    from voiceprint.scaffold import (
+        DEFAULT_MIN_P,
+        DEFAULT_TEMPERATURE,
+        MAX_TOKENS,
+        build_rewrite_prompt,
+        build_write_prompt,
+        stop_for,
+        trim_to_sentence,
+    )
+    from voiceprint.stylometry import Profile, score
+
+    request = parse_hosted_generation(item)
+    prompt = (
+        build_rewrite_prompt(request["text"])
+        if request["operation"] == "rewrite"
+        else build_write_prompt(
+            request["notes"],
+            request["length"],
+            preceding_text=request["preceding_text"] if request["operation"] == "continue" else "",
+        )
+    )
+    candidates = Writer(model=request["provider_model"]).generate.remote(
+        adapter_path=request["adapter_path"],
+        prompt=prompt,
+        n=8,
+        temperature=DEFAULT_TEMPERATURE,
+        min_p=DEFAULT_MIN_P,
+        max_tokens=MAX_TOKENS[request["length"]],
+        stop=stop_for(request["length"]),
+    )
+    profile = Profile.from_dict(request["style_profile"])
+    texts = [
+        trim_to_sentence(candidate["text"])
+        if candidate["finish_reason"] == "length"
+        else candidate["text"].strip()
+        for candidate in candidates
+        if candidate.get("text", "").strip()
+    ]
+    if not texts:
+        raise RuntimeError("the model returned no draft")
+    ranked = sorted(((text, score(profile, text)) for text in texts), key=lambda pair: -pair[1])
+    return {
+        "drafts": [text for text, _value in ranked],
+        "style_scores": [round(value, 4) for _text, value in ranked],
+        "mode": request["mode"],
+        "operation": request["operation"],
+        "warning": "Raw adapter output; verify facts and grammar.",
+    }
+
+
+@app.function(image=web_image, timeout=60, max_containers=8)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def hosted_generate_start(item: dict) -> dict:
+    from fastapi import HTTPException
+
+    try:
+        parse_hosted_generation(item)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    call = hosted_generate_job.spawn(item)
+    return {"call_id": call.object_id}
+
+
+@app.function(image=web_image, timeout=60, max_containers=8)
+@modal.fastapi_endpoint(method="POST", requires_proxy_auth=True)
+def hosted_generate_result(item: dict):
+    return _hosted_result(item)
+
+
+def _hosted_result(item: object):
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+
+    call_id = item.get("call_id") if isinstance(item, dict) else None
     if not isinstance(call_id, str) or not call_id.startswith("fc-"):
         raise HTTPException(status_code=400, detail="invalid job id")
     try:
