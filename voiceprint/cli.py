@@ -28,6 +28,17 @@ def main() -> int:
     )
     p_train.set_defaults(run=cmd_train)
 
+    p_inspect = sub.add_parser(
+        "inspect-corpus", help="check corpus readiness without training or using a GPU"
+    )
+    p_inspect.add_argument("path", help="file or folder of .md/.txt you wrote")
+    p_inspect.add_argument(
+        "--hosted",
+        action="store_true",
+        help="apply the stricter readiness gate used by the paid hosted product",
+    )
+    p_inspect.set_defaults(run=cmd_inspect_corpus)
+
     p_resume = sub.add_parser("resume", help="finish collecting a training job")
     p_resume.add_argument("job_id", nargs="?", help="defaults to the most recent unfinished job")
     p_resume.set_defaults(run=cmd_resume)
@@ -129,6 +140,25 @@ def cmd_train(args) -> int:
     print(f"training '{args.name}' on {models.resolve(args.model)} — a few minutes. job {job_id}")
     print(f"safe to interrupt; pick it back up with:  voiceprint resume {job_id}")
     return _await_training(job_id)
+
+
+def cmd_inspect_corpus(args) -> int:
+    documents = corpus.read_path(args.path)
+    report = corpus.inspect_hosted(documents) if args.hosted else corpus.inspect(documents)
+    print(f"status           {report.status}")
+    print(f"documents        {report.usable_documents}/{report.documents} usable")
+    print(f"words            {report.usable_words} usable / {report.raw_words} read")
+    print(f"chunks           {report.chunks}")
+    if report.duplicate_chunks:
+        print(
+            f"duplicates       {report.duplicate_chunks} passages / "
+            f"{report.duplicate_words} words removed"
+        )
+    for reason in report.reasons:
+        print(f"blocked          {reason}")
+    for warning in report.warnings:
+        print(f"warning          {warning}")
+    return 0 if report.ready else 1
 
 
 def cmd_resume(args) -> int:

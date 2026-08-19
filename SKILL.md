@@ -61,9 +61,11 @@ What to tell them when they ask what counts:
 - **If they want good short-form** (emails, replies, posts), include some genuinely short pieces.
   Length is a trained control, so a folder of essays only teaches it essays.
 
-Once the folder exists, you do the rest: call `train_voice(path, name)`, then poll
-`check_training(job_id)` until it says ready — about six minutes — and tell them when it lands.
-Don't hand them a command to run.
+Once the folder exists, call `inspect_corpus(path)` before training. If it is blocked, relay the
+specific reason and ask the user to add or replace material; do not edit their corpus for them. If
+it reports warnings, explain them and let the user decide whether to continue. Then call
+`train_voice(path, name)`, poll `check_training(job_id)` until it says ready — about six minutes —
+and tell them when it lands. Don't hand them a command to run.
 
 One thing to warn them about: their **first** draft afterwards starts a GPU container and loads the
 base model into it, which takes a couple of minutes. Everything after that is seconds while the
@@ -185,6 +187,7 @@ section, `long` for a whole piece. It's a trained control; a word count in the n
 
 - `setup_status()` — call first; where they are and what's next
 - `deploy()` — set up their workspace; run it yourself rather than telling them to
+- `inspect_corpus(path, hosted)` — deterministic readiness check before training or payment; no GPU
 - `list_voices()` — what's trained, and which is the default
 - `write_in_my_style(notes, preceding_text, length, voice, candidates)` — fresh section,
   continuation, or next section; the difference is only which arguments you fill in

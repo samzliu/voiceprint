@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 
 from voiceprint import markdown
@@ -20,6 +21,8 @@ TARGET_WORDS = 250
 MIN_CHUNK_WORDS = 25
 MIN_CORPUS_WORDS = 300
 WEAK_CORPUS_WORDS = 700
+HOSTED_MIN_CORPUS_WORDS = 1_000
+HOSTED_RECOMMENDED_CORPUS_WORDS = 2_000
 
 LIST_LINE = re.compile(r"^\s*([-*+•]|\d+[.)])\s")
 SENTENCE_END = re.compile(r"[.!?]")
@@ -32,6 +35,33 @@ class Chunk:
     words: int
     length: str
     source: str
+
+
+@dataclass(frozen=True)
+class CorpusReadiness:
+    """Deterministic preflight result shown before a training job can start.
+
+    The hosted product uses a stricter minimum than the local CLI because it is
+    charging for a managed model. Keeping the thresholds as arguments lets us
+    calibrate them from quality data without changing the extraction rules.
+    """
+
+    status: str
+    documents: int
+    usable_documents: int
+    raw_words: int
+    usable_words: int
+    chunks: int
+    duplicate_chunks: int
+    duplicate_words: int
+    minimum_words: int
+    recommended_words: int
+    reasons: tuple[str, ...]
+    warnings: tuple[str, ...]
+
+    @property
+    def ready(self) -> bool:
+        return self.status != "blocked"
 
 
 class CorpusTooSmall(Exception):
@@ -64,12 +94,106 @@ def read_path(path: str | Path) -> list[tuple[str, str]]:
 
 def to_chunks(documents: list[tuple[str, str]], target_words: int = TARGET_WORDS) -> list[Chunk]:
     chunks: list[Chunk] = []
+    seen: set[str] = set()
     for name, prose in documents:
         for text in _split_document(prose, target_words):
             words = len(text.split())
-            if words >= MIN_CHUNK_WORDS:
+            fingerprint = _chunk_fingerprint(text)
+            if words >= MIN_CHUNK_WORDS and fingerprint not in seen:
                 chunks.append(Chunk(text=text, words=words, length=length_bucket(words), source=name))
+                seen.add(fingerprint)
     return chunks
+
+
+def inspect(
+    documents: list[tuple[str, str]],
+    *,
+    minimum_words: int = MIN_CORPUS_WORDS,
+    recommended_words: int = WEAK_CORPUS_WORDS,
+) -> CorpusReadiness:
+    """Return a complete readiness report without starting or charging training."""
+    if minimum_words < 1 or recommended_words < minimum_words:
+        raise ValueError("recommended_words must be greater than or equal to minimum_words")
+
+    chunks, duplicate_chunks, duplicate_words = _chunks_with_duplicate_counts(documents)
+    usable_words = sum(chunk.words for chunk in chunks)
+    usable_sources = {chunk.source for chunk in chunks}
+    raw_words = sum(len(prose.split()) for _name, prose in documents)
+    reasons: list[str] = []
+    warnings: list[str] = []
+
+    if not documents:
+        reasons.append("No readable documents were found.")
+    if usable_words < minimum_words:
+        reasons.append(
+            f"Only {usable_words} usable words were found; at least {minimum_words} are required."
+        )
+    elif usable_words < recommended_words:
+        warnings.append(
+            f"{usable_words} usable words passed, but {recommended_words}+ usually produces a stronger voice."
+        )
+    if duplicate_chunks:
+        warnings.append(
+            f"Removed {duplicate_chunks} duplicate passage(s) totaling {duplicate_words} words."
+        )
+    ignored_documents = len(documents) - len(usable_sources)
+    if ignored_documents:
+        warnings.append(
+            f"Ignored {ignored_documents} document(s) without a usable prose passage of "
+            f"{MIN_CHUNK_WORDS}+ words."
+        )
+
+    status = "blocked" if reasons else "warning" if warnings else "ready"
+    return CorpusReadiness(
+        status=status,
+        documents=len(documents),
+        usable_documents=len(usable_sources),
+        raw_words=raw_words,
+        usable_words=usable_words,
+        chunks=len(chunks),
+        duplicate_chunks=duplicate_chunks,
+        duplicate_words=duplicate_words,
+        minimum_words=minimum_words,
+        recommended_words=recommended_words,
+        reasons=tuple(reasons),
+        warnings=tuple(warnings),
+    )
+
+
+def inspect_hosted(documents: list[tuple[str, str]]) -> CorpusReadiness:
+    """Paid-product preflight: do not offer checkout for a marginal corpus."""
+    return inspect(
+        documents,
+        minimum_words=HOSTED_MIN_CORPUS_WORDS,
+        recommended_words=HOSTED_RECOMMENDED_CORPUS_WORDS,
+    )
+
+
+def _chunk_fingerprint(text: str) -> str:
+    normalized = " ".join(text.casefold().split())
+    return sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _chunks_with_duplicate_counts(
+    documents: list[tuple[str, str]], target_words: int = TARGET_WORDS
+) -> tuple[list[Chunk], int, int]:
+    chunks: list[Chunk] = []
+    seen: set[str] = set()
+    duplicate_chunks = 0
+    duplicate_words = 0
+    for name, prose in documents:
+        for text in _split_document(prose, target_words):
+            words = len(text.split())
+            if words < MIN_CHUNK_WORDS:
+                continue
+            fingerprint = _chunk_fingerprint(text)
+            if fingerprint in seen:
+                duplicate_chunks += 1
+                duplicate_words += words
+                continue
+            seen.add(fingerprint)
+            chunks.append(Chunk(text=text, words=words, length=length_bucket(words), source=name))
+    return chunks, duplicate_chunks, duplicate_words
 
 
 def _is_prose_paragraph(paragraph: str) -> bool:

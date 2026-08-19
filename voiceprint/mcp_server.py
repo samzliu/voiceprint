@@ -8,9 +8,11 @@ because an agent reads tool descriptions even when it hasn't loaded SKILL.md.
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from mcp.server.mcpserver import MCPServer
 
-from voiceprint import engine, models, registry, remote, train
+from voiceprint import corpus, engine, models, registry, remote, train
 from voiceprint.scaffold import DEFAULT_N
 
 INSTRUCTIONS = """Voiceprint writes in the user's own voice, learned from their writing.
@@ -102,6 +104,20 @@ def list_voices() -> list[dict]:
          "default": v.name == registry.get_default(), "trained_at": v.trained_at}
         for v in registry.load_all()
     ]
+
+
+@server.tool()
+def inspect_corpus(path: str, hosted: bool = False) -> dict:
+    """Check whether a writing corpus is ready before training or payment.
+
+    This is a deterministic local check and never starts a GPU. It reports usable
+    prose, ignored documents, exact duplicate passages, blocking reasons, and
+    warnings. Set hosted=true before offering the managed $20 training purchase;
+    that gate requires more material than the self-hosted CLI minimum.
+    """
+    documents = corpus.read_path(path)
+    report = corpus.inspect_hosted(documents) if hosted else corpus.inspect(documents)
+    return asdict(report)
 
 
 @server.tool()

@@ -58,7 +58,9 @@ def test_short_documents_stay_whole(tmp_path):
 
 def test_long_documents_split_on_paragraph_boundaries(tmp_path):
     paragraph = words(100)
-    (tmp_path / "long.md").write_text("\n\n".join([paragraph] * 8))
+    (tmp_path / "long.md").write_text(
+        "\n\n".join(f"Paragraph {index}. {paragraph}" for index in range(8))
+    )
 
     chunks = corpus.to_chunks(corpus.read_path(tmp_path))
     assert len(chunks) > 1
@@ -111,3 +113,51 @@ def test_outline_fragments_are_not_a_voice(tmp_path):
 def test_a_file_of_pure_outline_yields_nothing(tmp_path):
     (tmp_path / "notes.md").write_text("\n".join(f"- thought {i}" for i in range(50)))
     assert corpus.to_chunks(corpus.read_path(tmp_path)) == []
+
+
+def test_duplicate_passages_are_removed_before_training(tmp_path):
+    passage = words(400)
+    (tmp_path / "first.md").write_text(passage)
+    (tmp_path / "copy.md").write_text(passage)
+
+    documents = corpus.read_path(tmp_path)
+    chunks = corpus.to_chunks(documents)
+    report = corpus.inspect(documents)
+
+    assert sum(chunk.words for chunk in chunks) < 500
+    assert report.duplicate_chunks > 0
+    assert report.duplicate_words > 0
+    assert any("duplicate" in warning for warning in report.warnings)
+
+
+def test_hosted_preflight_blocks_checkout_for_a_marginal_corpus(tmp_path):
+    (tmp_path / "thin.md").write_text(words(800))
+
+    report = corpus.inspect_hosted(corpus.read_path(tmp_path))
+
+    assert report.status == "blocked"
+    assert report.ready is False
+    assert report.minimum_words == corpus.HOSTED_MIN_CORPUS_WORDS
+    assert any("at least 1000" in reason for reason in report.reasons)
+
+
+def test_hosted_preflight_warns_but_allows_a_usable_corpus(tmp_path):
+    (tmp_path / "usable.md").write_text(words(1500))
+
+    report = corpus.inspect_hosted(corpus.read_path(tmp_path))
+
+    assert report.status == "warning"
+    assert report.ready is True
+    assert report.usable_words >= 1000
+    assert any("2000+" in warning for warning in report.warnings)
+
+
+def test_hosted_preflight_marks_a_strong_corpus_ready(tmp_path):
+    (tmp_path / "strong.md").write_text(words(2500))
+
+    report = corpus.inspect_hosted(corpus.read_path(tmp_path))
+
+    assert report.status == "ready"
+    assert report.ready is True
+    assert report.reasons == ()
+    assert report.warnings == ()

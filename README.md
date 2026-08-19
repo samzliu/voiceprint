@@ -79,6 +79,7 @@ voiceprint check
 Train a voice from Markdown or text files:
 
 ```sh
+voiceprint inspect-corpus ~/my-writing
 voiceprint train ~/my-writing --name me
 ```
 
@@ -192,7 +193,10 @@ voiceprint train post.md --name me
 ```
 
 The preparation step removes headings, code blocks, tables, quotes, and bulleted outlines. The CLI
-rejects fewer than 300 usable words and warns below 700.
+rejects fewer than 300 usable words and warns below 700. `voiceprint inspect-corpus` runs the same
+check without starting a GPU; it also reports ignored files and removes exact duplicate passages.
+The paid hosted workflow uses a stricter 1,000-word gate and recommends at least 2,000 words before
+checkout.
 
 Keep the corpus consistent. Use writing with the same voice, audience, and level of formality you
 want Voiceprint to reproduce. Mixing personal essays, corporate copy, academic prose, and heavily
