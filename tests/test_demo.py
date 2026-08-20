@@ -99,3 +99,72 @@ def test_hosted_generation_accepts_bounded_write_request():
     )
     assert request["notes"] == ["A factual note"]
     assert request["mode"] == "edited"
+
+
+def test_hosted_generation_accepts_voiceprint_native_revoice():
+    request = parse_hosted_generation(
+        {
+            "adapter_path": "/voices/model_abc",
+            "provider_model": "Qwen/Qwen2.5-14B",
+            "operation": "revoice",
+            "text": "A private correction draft.",
+            "style_profile": {"profile": "placeholder"},
+        }
+    )
+    assert request["operation"] == "revoice"
+    assert request["text"] == "A private correction draft."
+
+
+def test_hosted_generation_accepts_planned_span_edit():
+    text = "Keep before. Replace this. Keep after."
+    start = text.index("Replace")
+    end = text.index(" Keep after")
+    request = parse_hosted_generation(
+        {
+            "adapter_path": "/voices/model_abc",
+            "provider_model": "Qwen/Qwen2.5-14B",
+            "operation": "edit_span",
+            "text": text,
+            "selection_start": start,
+            "selection_end": end,
+            "replacement_draft": "A private planned replacement.",
+            "style_profile": {"profile": "placeholder"},
+        }
+    )
+    assert request["selection_start"] == start
+    assert request["selection_end"] == end
+    assert request["replacement_draft"] == "A private planned replacement."
+
+
+def test_hosted_generation_preserves_server_split_context_for_unicode_offsets():
+    request = parse_hosted_generation(
+        {
+            "adapter_path": "/voices/model_abc",
+            "provider_model": "Qwen/Qwen2.5-14B",
+            "operation": "edit_span",
+            "text": "Before 😀 old after",
+            "selection_start": 10,
+            "selection_end": 13,
+            "text_before": "Before 😀 ",
+            "text_after": " after",
+            "replacement_draft": "new",
+            "style_profile": {"profile": "placeholder"},
+        }
+    )
+    assert request["text_before"] == "Before 😀 "
+    assert request["text_after"] == " after"
+
+
+def test_hosted_generation_rejects_unplanned_span_edit():
+    with pytest.raises(ValueError, match="replacement_draft"):
+        parse_hosted_generation(
+            {
+                "adapter_path": "/voices/model_abc",
+                "provider_model": "Qwen/Qwen2.5-14B",
+                "operation": "edit_span",
+                "text": "Replace this.",
+                "selection_start": 0,
+                "selection_end": 7,
+                "style_profile": {"profile": "placeholder"},
+            }
+        )

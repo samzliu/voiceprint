@@ -39,7 +39,8 @@ Before writing, identify the delivery mode:
   edited  Correct only false facts, spelling, grammar, broken syntax, and accidental repetition.
           Do not smooth transitions, replace sound metaphors, reorder paragraphs, tighten the
           rhythm, or otherwise perform a general AI polish. Warn that even limited AI edits may
-          score as more AI-like.
+          score as more AI-like. Your correction draft is private: finish every narrow change with
+          edit_span, or a whole corrected draft with revoice, and return only Voiceprint's result.
 
 After assembling, verify every specific against the sources. Score the exact final artifact, never
 an earlier candidate. A stylometry score measures voice similarity, not AI detection. Pangram is an
@@ -159,6 +160,8 @@ def write_in_my_style(
         "candidates": candidates,
         "mode": "raw",
         "warning": "raw adapter output; verify facts and grammar before publishing",
+        "final_writer": "voiceprint",
+        "finalized_by_adapter": True,
     }
 
 
@@ -170,7 +173,47 @@ def rewrite_in_my_style(text: str, voice: str | None = None) -> dict:
     the user's own rough dump. Code blocks, headings, tables and quotes pass through untouched.
     Do not use it to write something new; use write_in_my_style for that.
     """
-    return {"text": engine.rewrite(text, voice_name=voice)}
+    return {
+        "text": engine.revoice(text, voice_name=voice),
+        "final_writer": "voiceprint",
+        "finalized_by_adapter": True,
+    }
+
+
+@server.tool()
+def revoice(text: str, voice: str | None = None) -> dict:
+    """Make Voiceprint the final writer of an existing draft.
+
+    Use after a human or general LLM has planned factual or mechanical changes.
+    Never expose that intermediate draft: return only this adapter-authored text.
+    """
+    return {
+        "text": engine.revoice(text, voice_name=voice),
+        "final_writer": "voiceprint",
+        "finalized_by_adapter": True,
+    }
+
+
+@server.tool()
+def edit_span(
+    text: str,
+    start: int,
+    end: int,
+    replacement_draft: str,
+    voice: str | None = None,
+) -> dict:
+    """Apply one precise edit while preserving Voiceprint as the final writer.
+
+    start/end are Python character offsets into `text`. A planning model may
+    prepare `replacement_draft`, but it is private intermediate material. This
+    tool revoices that replacement and preserves all text outside the span.
+    """
+    return {
+        "text": engine.edit_span(text, start, end, replacement_draft, voice_name=voice),
+        "edited_span": {"start": start, "end": end},
+        "final_writer": "voiceprint",
+        "finalized_by_adapter": True,
+    }
 
 
 @server.tool()

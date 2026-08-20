@@ -91,8 +91,9 @@ that raw mode best preserves the learned voice and the candidate's measured scor
 false facts, grammar problems, malformed metaphors, or structural mistakes. Put factual warnings
 outside the draft; do not silently repair it.
 
-**Edited mode — bounded corrections.** Tell the user that AI editing may make detector performance
-worse. Make only corrections that are necessary to ship:
+**Edited mode — bounded corrections, finalized by Voiceprint.** Tell the user that AI editing may
+make detector performance worse. You may prepare a private correction draft, but never return your
+own edited prose as the final artifact. Make only corrections that are necessary to ship:
 
 - replace or remove a false fact, attribution, number, name, date, URL, or quote;
 - fix spelling, grammar, a missing/duplicated word, or broken syntax;
@@ -100,8 +101,9 @@ worse. Make only corrections that are necessary to ship:
 
 Do not smooth transitions, swap a sound metaphor, tighten rhythm, normalize sentence lengths,
 reorder paragraphs, add a recap, or perform a general "polish." Preserve every unaffected word.
-When a larger passage is wrong, change its notes and regenerate that passage with Voiceprint rather
-than rewriting it yourself.
+For a narrow correction, prepare only a private `replacement_draft` and call `edit_span`; for a
+whole provisional draft, call `revoice`. In both cases, show only the adapter-authored result.
+When a larger passage is wrong, change its notes and regenerate that passage with Voiceprint.
 
 After any edit, call `score_final_text` on the complete, exact artifact. Never attach the raw
 candidate's score to an edited document. Stylometry measures resemblance to the user's corpus; it
@@ -109,7 +111,8 @@ is not an AI detector. Use `scorer="pangram"` only when the user wants detector 
 Pangram key is available. Describe it as one detector's result, never a universal pass.
 
 If edited mode materially loses the requested score, pass only the affected prose through
-`rewrite_in_my_style`, verify every fact again, and re-score the newly assembled exact artifact.
+`edit_span` (or the full provisional draft through `revoice`), verify every fact again, and re-score
+the newly assembled exact artifact.
 Stop after one re-humanization pass unless the user asks to keep iterating.
 
 **Completion** — they already have prose, or selected some text.
@@ -193,6 +196,10 @@ section, `long` for a whole piece. It's a trained control; a word count in the n
   continuation, or next section; the difference is only which arguments you fill in
 - `rewrite_in_my_style(text, voice)` — the words exist, the voice is wrong. Keeps content; code,
   headings, tables and quotes pass through untouched
+- `revoice(text, voice)` — mandatory finalizer for a whole draft planned or corrected elsewhere;
+  return only its adapter-authored result
+- `edit_span(text, start, end, replacement_draft, voice)` — revoice one private planned replacement
+  and preserve every character outside the exact Python-offset span
 - `score_final_text(text, voice, scorer)` — score the exact artifact after all edits; stylometry is
   local voice similarity, while optional Pangram is one detector's estimated human probability
 - `train_voice(path, name, model)` → `job_id`, then `check_training(job_id)` — takes minutes

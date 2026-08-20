@@ -113,3 +113,51 @@ def rewrite(
         draft = _run(voice, build_rewrite_prompt(body), length, n, temperature, scorer_name)
         out.append(f"{leading}{draft.text}{trailing}")
     return "".join(out)
+
+
+def revoice(
+    text: str,
+    voice_name: str | None = None,
+    n: int = 4,
+    temperature: float = DEFAULT_TEMPERATURE,
+    scorer_name: str = "stylometry",
+) -> str:
+    """Make Voiceprint the final writer of an existing draft.
+
+    The input may have been planned or mechanically corrected by another model,
+    but only this adapter-authored result is suitable for user-visible output.
+    """
+    if not text.strip():
+        raise ValueError("nothing to revoice")
+    return rewrite(text, voice_name, n, temperature, scorer_name)
+
+
+def edit_span(
+    text: str,
+    start: int,
+    end: int,
+    replacement_draft: str,
+    voice_name: str | None = None,
+    n: int = 4,
+    temperature: float = DEFAULT_TEMPERATURE,
+    scorer_name: str = "stylometry",
+) -> str:
+    """Replace one exact span, with Voiceprint writing the replacement's final words.
+
+    `replacement_draft` is private intermediate material prepared by a human or
+    planning model. Text outside the selected span is preserved byte-for-byte.
+    """
+    if not isinstance(start, int) or isinstance(start, bool) or not isinstance(end, int) or isinstance(end, bool):
+        raise ValueError("span offsets must be integers")
+    if start < 0 or end <= start or end > len(text):
+        raise ValueError("invalid edit span")
+    if not replacement_draft.strip():
+        raise ValueError("replacement draft is empty")
+    replacement = revoice(
+        replacement_draft,
+        voice_name=voice_name,
+        n=n,
+        temperature=temperature,
+        scorer_name=scorer_name,
+    )
+    return f"{text[:start]}{replacement}{text[end:]}"

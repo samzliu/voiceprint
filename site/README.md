@@ -31,12 +31,17 @@ Production bindings and secrets:
 - beta generation: `HOSTED_GENERATE_ENDPOINT`, `HOSTED_GENERATE_RESULT_ENDPOINT`
 - signed training completion: `PROVIDER_CALLBACK_SECRET` (16+ random characters), `APP_URL`
 - checkout: `STRIPE_SECRET_KEY`, `STRIPE_TRAINING_PRICE_ID`, `STRIPE_CREDIT_PRICE_ID`, `STRIPE_WEBHOOK_SECRET`
-- guided requests and edited mode: `AI_GATEWAY_API_KEY`; optional `ROUTER_MODEL`
+- guided requests and private edit planning: `AI_GATEWAY_API_KEY`; optional `ROUTER_MODEL`
 - completion email: `RESEND_API_KEY`, `EMAIL_FROM`
 - operations: comma-separated `ADMIN_EMAILS`
 
 The current verified default router is `openai/gpt-5.6-luna`. Override it with a
 current AI Gateway model ID without changing application code.
+
+The router may prepare private correction drafts, but it is never the final
+writer. `revoice`, `edit_span`, and edited `write`/`continue` requests finish
+with the user's Voiceprint adapter. Provider results without the Voiceprint
+final-writer attestation are rejected and the generation credit is restored.
 
 ## Verify
 

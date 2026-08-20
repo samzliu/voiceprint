@@ -38,13 +38,20 @@ type ApiError = { error?: { message?: string } };
 type DraftProposal = {
   model_id: string;
   model_name: string;
-  operation: "write" | "continue" | "rewrite";
+  operation: "write" | "continue" | "rewrite" | "edit_span" | "revoice";
   mode: "raw" | "edited";
   length: "short" | "medium" | "long";
   notes: string[];
   preceding_text?: string;
   text?: string;
 };
+type GenerationResult = {
+  drafts?: string[];
+  warning?: string;
+  final_writer?: string;
+  finalized_by_adapter?: boolean;
+};
+type GenerationJob = { id: string; status: string; result?: GenerationResult };
 
 const ALL_SCOPES = [
   "corpora:read",
@@ -412,7 +419,12 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
   async function requestDraft(input: DraftProposal) {
     setBusy(true); setDraft("");
     try {
-      const result = await api<{ result?: { drafts?: string[]; warning?: string } }>("/v1/generations", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(input) });
+      let result = await api<GenerationJob>("/v1/generations", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(input) });
+      for (let attempt = 0; !result.result && result.status !== "failed" && attempt < 240; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        result = await api<GenerationJob>(`/v1/jobs/${result.id}`);
+      }
+      if (!result.result) throw new Error("Generation is still running. You can safely retry from the workspace shortly.");
       setDraft(result.result?.drafts?.[0] || "Generation is queued. Check back shortly.");
       setWarning(result.result?.warning || "Raw adapter output; verify every fact.");
       setMode(input.mode);

@@ -452,8 +452,8 @@ def parse_hosted_generation(item: object) -> dict:
     if model not in HOSTED_MODELS:
         raise ValueError("unsupported base model")
     operation = item.get("operation", "write")
-    if operation not in {"write", "continue", "rewrite"}:
-        raise ValueError("operation must be write, continue, or rewrite")
+    if operation not in {"write", "continue", "rewrite", "edit_span", "revoice"}:
+        raise ValueError("operation must be write, continue, rewrite, edit_span, or revoice")
     length = item.get("length", "medium")
     if length not in {"short", "medium", "long"}:
         raise ValueError("length must be short, medium, or long")
@@ -464,16 +464,44 @@ def parse_hosted_generation(item: object) -> dict:
     notes = [note.strip()[:500] for note in notes if note.strip()]
     preceding = item.get("preceding_text", "")
     draft = item.get("text", "")
+    replacement_draft = item.get("replacement_draft", "")
+    text_before = item.get("text_before")
+    text_after = item.get("text_after")
     if not isinstance(preceding, str) or len(preceding) > 30_000:
         raise ValueError("preceding_text is too long")
     if not isinstance(draft, str) or len(draft) > 30_000:
         raise ValueError("text is too long")
+    if not isinstance(replacement_draft, str) or len(replacement_draft) > 30_000:
+        raise ValueError("replacement_draft is too long")
     if operation == "write" and not notes:
         raise ValueError("write requires at least one factual note")
     if operation == "continue" and not notes and not preceding.strip():
         raise ValueError("continue requires notes or preceding text")
-    if operation == "rewrite" and not draft.strip():
-        raise ValueError("rewrite requires source text")
+    if operation in {"rewrite", "revoice"} and not draft.strip():
+        raise ValueError(f"{operation} requires source text")
+    selection_start = item.get("selection_start")
+    selection_end = item.get("selection_end")
+    if operation == "edit_span":
+        if (
+            not isinstance(selection_start, int)
+            or isinstance(selection_start, bool)
+            or not isinstance(selection_end, int)
+            or isinstance(selection_end, bool)
+            or selection_start < 0
+            or selection_end <= selection_start
+            or selection_end > len(draft)
+        ):
+            raise ValueError("edit_span requires valid selection_start and selection_end offsets")
+        if not replacement_draft.strip():
+            raise ValueError("edit_span requires a replacement_draft")
+        if text_before is not None or text_after is not None:
+            if not isinstance(text_before, str) or not isinstance(text_after, str):
+                raise ValueError("edit_span context must be text")
+            if len(text_before) + len(text_after) > 30_000:
+                raise ValueError("edit_span context is too long")
+        else:
+            text_before = draft[:selection_start]
+            text_after = draft[selection_end:]
     profile = item.get("style_profile")
     if not isinstance(profile, dict):
         raise ValueError("style profile is required")
@@ -484,7 +512,12 @@ def parse_hosted_generation(item: object) -> dict:
         "length": length,
         "notes": notes,
         "preceding_text": preceding.strip(),
-        "text": draft.strip(),
+        "text": draft if operation == "edit_span" else draft.strip(),
+        "replacement_draft": replacement_draft.strip(),
+        "selection_start": selection_start,
+        "selection_end": selection_end,
+        "text_before": text_before,
+        "text_after": text_after,
         "style_profile": profile,
         "mode": "edited" if item.get("mode") == "edited" else "raw",
     }
@@ -561,9 +594,14 @@ def hosted_generate_job(item: dict) -> dict:
     from voiceprint.stylometry import Profile, score
 
     request = parse_hosted_generation(item)
+    rewrite_source = (
+        request["replacement_draft"]
+        if request["operation"] == "edit_span"
+        else request["text"]
+    )
     prompt = (
-        build_rewrite_prompt(request["text"])
-        if request["operation"] == "rewrite"
+        build_rewrite_prompt(rewrite_source)
+        if request["operation"] in {"rewrite", "revoice", "edit_span"}
         else build_write_prompt(
             request["notes"],
             request["length"],
@@ -589,13 +627,21 @@ def hosted_generate_job(item: dict) -> dict:
     ]
     if not texts:
         raise RuntimeError("the model returned no draft")
+    if request["operation"] == "edit_span":
+        texts = [f'{request["text_before"]}{text}{request["text_after"]}' for text in texts]
     ranked = sorted(((text, score(profile, text)) for text in texts), key=lambda pair: -pair[1])
     return {
         "drafts": [text for text, _value in ranked],
         "style_scores": [round(value, 4) for _text, value in ranked],
         "mode": request["mode"],
         "operation": request["operation"],
-        "warning": "Raw adapter output; verify facts and grammar.",
+        "warning": (
+            "Voiceprint wrote the final edited text; verify facts and re-score this exact artifact."
+            if request["operation"] in {"rewrite", "revoice", "edit_span"} or request["mode"] == "edited"
+            else "Raw adapter output; verify facts and grammar."
+        ),
+        "final_writer": "voiceprint",
+        "finalized_by_adapter": True,
     }
 
 

@@ -1,4 +1,4 @@
-import { createGateway, generateText, stepCountIs, tool, ToolLoopAgent } from "ai";
+import { createGateway, generateText, Output, stepCountIs, tool, ToolLoopAgent } from "ai";
 import { z } from "zod";
 
 import type { AppEnv } from "./api";
@@ -8,7 +8,7 @@ export type AssistantUser = { id: string; email: string };
 export type DraftProposal = {
   model_id: string;
   model_name: string;
-  operation: "write" | "continue" | "rewrite";
+  operation: "write" | "continue" | "rewrite" | "edit_span" | "revoice";
   mode: "raw" | "edited";
   length: "short" | "medium" | "long";
   notes: string[];
@@ -90,7 +90,7 @@ export async function runWritingAssistant(
   }
   const defaults: Partial<DraftProposal> = {
     ...(typeof body.model_id === "string" ? { model_id: body.model_id } : {}),
-    ...(body.operation === "continue" || body.operation === "rewrite" || body.operation === "write"
+    ...(body.operation === "continue" || body.operation === "rewrite" || body.operation === "write" || body.operation === "edit_span" || body.operation === "revoice"
       ? { operation: body.operation }
       : {}),
     ...(body.mode === "edited" || body.mode === "raw" ? { mode: body.mode } : {}),
@@ -116,7 +116,7 @@ export async function runWritingAssistant(
     description: "Prepare, but do not execute, a Voiceprint generation request after the facts are sufficient.",
     inputSchema: z.object({
       model_id: z.string().min(1),
-      operation: z.enum(["write", "continue", "rewrite"]),
+      operation: z.enum(["write", "continue", "rewrite", "edit_span", "revoice"]),
       mode: z.enum(["raw", "edited"]),
       length: z.enum(["short", "medium", "long"]),
       notes: z.array(z.string().min(1).max(500)).min(1).max(12),
@@ -129,6 +129,8 @@ export async function runWritingAssistant(
       ).bind(input.model_id, user.id).first<{ id: string; name: string }>();
       if (!model) throw new Error("That model is not ready or does not belong to this writer.");
       if (input.operation === "rewrite" && !input.text?.trim()) throw new Error("A rewrite needs the source text.");
+      if (input.operation === "revoice" && !input.text?.trim()) throw new Error("Revoice needs source text.");
+      if (input.operation === "edit_span") throw new Error("Use the direct edit-span tool with an exact selection.");
       if (input.operation === "continue" && !input.preceding_text?.trim() && !input.notes.length) {
         throw new Error("A continuation needs preceding text or factual notes.");
       }
@@ -172,7 +174,11 @@ Keep your response concise. Never claim the prepared request has already generat
   };
 }
 
-export async function applyLightEdit(
+/**
+ * Produce a private, provisional correction draft. This text is never returned
+ * to the user: the custom Voiceprint adapter must revoice it before delivery.
+ */
+export async function planLightEdit(
   env: AppEnv,
   user: AssistantUser,
   draft: string,
@@ -186,8 +192,8 @@ export async function applyLightEdit(
   const gateway = createGateway({ apiKey: env.AI_GATEWAY_API_KEY });
   const result = await generateText({
     model: gateway((env.ROUTER_MODEL || DEFAULT_ROUTER_MODEL) as Parameters<typeof gateway>[0]),
-    system: `You are a deliberately conservative copy editor.
-Return only the edited text, with no preface.
+    system: `You prepare a private correction draft for a custom Voiceprint adapter.
+Return only the provisional edited text, with no preface. This is never user-visible.
 Preserve the author's wording, sentence order, paragraph structure, rhythm, metaphors, transitions, and level of formality.
 Only fix unambiguous spelling, punctuation, agreement, or grammar errors, and only replace facts explicitly listed in the correction notes.
 Do not improve style. Do not smooth prose. Do not add facts. If a passage is merely awkward, leave it alone.`,
@@ -202,4 +208,37 @@ Do not improve style. Do not smooth prose. Do not add facts. If a passage is mer
     },
   });
   return result.text.trim() || draft;
+}
+
+export async function planSpanEdit(
+  env: AppEnv,
+  user: AssistantUser,
+  selectedText: string,
+  instruction: string,
+): Promise<string> {
+  if (!env.AI_GATEWAY_API_KEY) {
+    if (env.DEV_AUTH !== "1") throw new Error("Edit-span planning is not configured.");
+    return selectedText;
+  }
+  const gateway = createGateway({ apiKey: env.AI_GATEWAY_API_KEY });
+  const result = await generateText({
+    model: gateway((env.ROUTER_MODEL || DEFAULT_ROUTER_MODEL) as Parameters<typeof gateway>[0]),
+    system: `You plan one narrow edit before a custom Voiceprint adapter writes the final words.
+Return a provisional replacement for only the selected span. Follow the instruction literally.
+Preserve every fact not explicitly changed. Do not add context, commentary, or surrounding text.
+Your replacement is private intermediate material and must never be shown directly to the user.`,
+    prompt: `Edit instruction:\n${instruction}\n\nSelected span:\n${selectedText}`,
+    output: Output.object({
+      schema: z.object({ replacement_draft: z.string().min(1).max(30_000) }),
+    }),
+    maxOutputTokens: 1_200,
+    providerOptions: {
+      gateway: {
+        user: user.id,
+        tags: ["feature:edit-span-plan", "environment:beta"],
+        cacheControl: "max-age=0",
+      },
+    },
+  });
+  return result.output.replacement_draft.trim();
 }

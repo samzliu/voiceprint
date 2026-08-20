@@ -39,6 +39,8 @@ test("server-renders the API reference", async () => {
   assert.match(html, /API \/ VERSION 1/i);
   assert.match(html, /Corpus preflight/i);
   assert.match(html, /Idempotency-Key/i);
+  assert.match(html, /edit_span/i);
+  assert.match(html, /Voiceprint adapter always writes the final/i);
 });
 
 test("server-renders the protected operations shell", async () => {

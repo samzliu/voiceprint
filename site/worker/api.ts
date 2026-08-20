@@ -1,6 +1,6 @@
 import { prepareCorpus, type CorpusDocument } from "./corpus";
 import { ensureAppSchema } from "./schema";
-import { applyLightEdit, runWritingAssistant } from "./writing-assistant";
+import { planLightEdit, planSpanEdit, runWritingAssistant } from "./writing-assistant";
 import { scoreStyle, type StyleProfile } from "./stylometry";
 
 export interface AppEnv {
@@ -498,11 +498,29 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
     if (existing) return response({ id: existing.id, status: existing.status, ...(existing.result ? { result: JSON.parse(existing.result) } : {}) });
   }
   const modelId = typeof body.model_id === "string" ? body.model_id : "";
-  const operation = ["write", "continue", "rewrite"].includes(String(body.operation)) ? String(body.operation) : "write";
-  const mode = body.mode === "edited" ? "edited" : "raw";
+  const operations = ["write", "continue", "rewrite", "edit_span", "revoice"];
+  const operation = operations.includes(String(body.operation)) ? String(body.operation) : "write";
+  const mode = body.mode === "edited" || operation === "edit_span" ? "edited" : "raw";
   const corrections = Array.isArray(body.corrections)
     ? body.corrections.filter((item): item is string => typeof item === "string").slice(0, 20)
     : [];
+  const notes = Array.isArray(body.notes) ? body.notes.filter((note): note is string => typeof note === "string" && Boolean(note.trim())).slice(0, 12) : [];
+  const text = typeof body.text === "string" ? body.text : "";
+  const precedingText = typeof body.preceding_text === "string" ? body.preceding_text : "";
+  if (operation === "write" && !notes.length) return failure("invalid_generation", "Write requires at least one factual note.", 400);
+  if (operation === "continue" && !notes.length && !precedingText.trim()) return failure("invalid_generation", "Continue requires notes or preceding text.", 400);
+  if ((operation === "rewrite" || operation === "revoice") && !text.trim()) return failure("invalid_generation", `${operation} requires source text.`, 400);
+  const selectionStart = body.selection_start;
+  const selectionEnd = body.selection_end;
+  const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
+  if (operation === "edit_span" && (
+    !Number.isInteger(selectionStart)
+    || !Number.isInteger(selectionEnd)
+    || Number(selectionStart) < 0
+    || Number(selectionEnd) <= Number(selectionStart)
+    || Number(selectionEnd) > text.length
+    || !instruction
+  )) return failure("invalid_generation", "Edit span requires text, a non-empty instruction, and valid selection_start/selection_end offsets.", 400);
   const model = await env.DB.prepare(
     "SELECT id, adapter_path, provider_model, style_profile FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
   ).bind(modelId, user.id).first<{ id: string; adapter_path: string; provider_model: string; style_profile: string | null }>();
@@ -514,8 +532,26 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
   let providerJobId: string | null = null;
   let result: JsonObject | null = null;
   if (env.HOSTED_GENERATE_ENDPOINT) {
+    const providerBody: JsonObject = { ...body, operation, mode };
+    try {
+      if (operation === "edit_span") {
+        providerBody.text_before = text.slice(0, Number(selectionStart));
+        providerBody.text_after = text.slice(Number(selectionEnd));
+        providerBody.replacement_draft = await planSpanEdit(
+          env,
+          user,
+          text.slice(Number(selectionStart), Number(selectionEnd)),
+          instruction,
+        );
+      } else if ((operation === "rewrite" || operation === "revoice") && mode === "edited") {
+        providerBody.text = await planLightEdit(env, user, text, corrections);
+        providerBody.operation = "revoice";
+      }
+    } catch (error) {
+      return failure("edit_planning_unavailable", error instanceof Error ? error.message : "The edit could not be planned.", 503);
+    }
     const upstream = await callModal(env.HOSTED_GENERATE_ENDPOINT, env, {
-      ...body,
+      ...providerBody,
       adapter_path: model.adapter_path,
       provider_model: model.provider_model,
       style_profile: model.style_profile ? JSON.parse(model.style_profile) : null,
@@ -524,15 +560,20 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
     if (!upstream.ok || !data.call_id) return failure("generation_unavailable", data.detail || "Generation could not be queued.", 502);
     providerJobId = data.call_id;
   } else if (env.DEV_AUTH === "1") {
-    const notes = Array.isArray(body.notes) ? body.notes.filter((note): note is string => typeof note === "string") : [];
     const rawDraft = `${notes.join(" ") || "A blank page is only blank until you decide what belongs on it."}\n\nThis is a local beta preview. The deployed model will return raw adapter prose here.`;
-    const finalDraft = mode === "edited" ? await applyLightEdit(env, user, rawDraft, corrections) : rawDraft;
+    const finalDraft = operation === "edit_span"
+      ? `${text.slice(0, Number(selectionStart))}${text.slice(Number(selectionStart), Number(selectionEnd))}${text.slice(Number(selectionEnd))}`
+      : operation === "rewrite" || operation === "revoice"
+        ? text
+        : rawDraft;
     result = {
       drafts: [finalDraft],
-      ...(mode === "edited" ? { raw_draft: rawDraft } : {}),
+      ...(mode === "edited" && operation !== "edit_span" ? { raw_draft: rawDraft } : {}),
       mode,
       operation,
-      warning: mode === "raw" ? "Raw adapter output; verify facts and grammar." : "Light AI edits may change detector results.",
+      warning: mode === "raw" ? "Raw adapter output; verify facts and grammar." : "Voiceprint wrote the final edited text; verify facts and re-score this exact artifact.",
+      final_writer: "development_stub",
+      finalized_by_adapter: false,
     };
   } else {
     return failure("generation_unavailable", "The generation provider is not configured.", 503);
@@ -541,7 +582,7 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
   await env.DB.batch([
     env.DB.prepare(
       "INSERT INTO jobs (id, owner_id, kind, status, resource_id, provider_job_id, request, result, idempotency_key, created_at, updated_at) VALUES (?, ?, 'generation', ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(jobId, user.id, result ? "completed" : "queued", modelId, providerJobId, JSON.stringify(body), result ? JSON.stringify(result) : null, idempotencyKey, timestamp, timestamp),
+    ).bind(jobId, user.id, result ? "completed" : "queued", modelId, providerJobId, JSON.stringify({ ...body, replacement_draft: undefined, operation, mode }), result ? JSON.stringify(result) : null, idempotencyKey, timestamp, timestamp),
     env.DB.prepare(
       "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, -1, 'generation', ?, ?)",
     ).bind(id("credit"), user.id, jobId, timestamp),
@@ -614,15 +655,70 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
   if (job.kind === "generation") {
     const generationRequest = job.request ? JSON.parse(String(job.request)) as JsonObject : {};
     const drafts = Array.isArray(result.drafts) ? result.drafts.filter((item): item is string => typeof item === "string") : [];
-    if (generationRequest.mode === "edited" && drafts[0]) {
+    if (result.final_writer !== "voiceprint" || result.finalized_by_adapter !== true) {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+          .bind("The provider did not attest that Voiceprint wrote the final output.", timestamp, jobId, user.id),
+        env.DB.prepare(
+          "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, 1, 'generation_refund', ?, ?)",
+        ).bind(id("credit"), user.id, jobId, timestamp),
+      ]);
+      return failure("final_writer_unverified", "Generation was rejected because Voiceprint was not the verified final writer. The credit was restored.", 502);
+    }
+    const requestedOperation = typeof generationRequest.operation === "string" ? generationRequest.operation : "write";
+    const needsFinalPass = generationRequest.mode === "edited"
+      && (requestedOperation === "write" || requestedOperation === "continue")
+      && generationRequest.finalization_stage !== "voiceprint";
+    if (needsFinalPass && drafts[0]) {
       const corrections = Array.isArray(generationRequest.corrections)
         ? generationRequest.corrections.filter((item): item is string => typeof item === "string").slice(0, 20)
         : [];
       const rawDraft = drafts[0];
-      result.raw_draft = rawDraft;
-      result.drafts = [await applyLightEdit(env, user, rawDraft, corrections)];
-      result.warning = "Light AI edits may change detector results. Re-score this exact final artifact.";
+      try {
+        if (!env.HOSTED_GENERATE_ENDPOINT) throw new Error("The Voiceprint finalization endpoint is not configured.");
+        const model = await env.DB.prepare(
+          "SELECT adapter_path, provider_model, style_profile FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
+        ).bind(String(job.resource_id), user.id).first<{ adapter_path: string; provider_model: string; style_profile: string | null }>();
+        if (!model) throw new Error("The Voiceprint model is no longer ready.");
+        const correctionDraft = await planLightEdit(env, user, rawDraft, corrections);
+        const upstream = await callModal(env.HOSTED_GENERATE_ENDPOINT, env, {
+          operation: "revoice",
+          mode: "edited",
+          length: generationRequest.length || "medium",
+          text: correctionDraft,
+          notes: [],
+          adapter_path: model.adapter_path,
+          provider_model: model.provider_model,
+          style_profile: model.style_profile ? JSON.parse(model.style_profile) : null,
+        });
+        const queued = await upstream.json() as { call_id?: string; detail?: string };
+        if (!upstream.ok || !queued.call_id) throw new Error(queued.detail || "Voiceprint finalization could not be queued.");
+        const nextRequest = {
+          ...generationRequest,
+          finalization_stage: "voiceprint",
+          raw_draft: rawDraft,
+        };
+        await env.DB.prepare("UPDATE jobs SET status = 'queued', provider_job_id = ?, request = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+          .bind(queued.call_id, JSON.stringify(nextRequest), timestamp, jobId, user.id).run();
+        return response({ ...job, status: "queued", finalization: "voiceprint" }, 202);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Voiceprint finalization failed.";
+        await env.DB.batch([
+          env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+            .bind(message, timestamp, jobId, user.id),
+          env.DB.prepare(
+            "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, 1, 'generation_refund', ?, ?)",
+          ).bind(id("credit"), user.id, jobId, timestamp),
+        ]);
+        return failure("finalization_failed", `${message} The credit was restored.`, 502);
+      }
     }
+    if (generationRequest.finalization_stage === "voiceprint") {
+      result.raw_draft = generationRequest.raw_draft;
+      result.warning = "Voiceprint wrote the final edited text; verify facts and re-score this exact artifact.";
+    }
+    result.operation = requestedOperation;
+    result.mode = generationRequest.mode === "edited" ? "edited" : "raw";
   }
   if (job.kind === "training" && job.resource_id) {
     const claimed = await env.DB.prepare(

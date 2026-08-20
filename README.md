@@ -150,8 +150,12 @@ Voiceprint's raw output preserves the learned voice most faithfully, but it can 
 grammatical errors. An agent using Voiceprint should label that as **raw mode** and leave the prose
 untouched.
 
-In **edited mode**, your AI agent may make changes to fix grammatical structure or hallucinations. 
-However, this may make it sound more like AI slop and it may no longer pass AI writing detectors.
+In **edited mode**, limit changes to false facts, spelling, grammar, broken syntax, and accidental
+repetition. Avoid general AI polishing such as smoothing transitions, replacing metaphors,
+tightening rhythm, or restructuring paragraphs; those changes can make the result read more like a
+generic assistant. A general model may prepare a private correction draft, but `edit_span` or
+`revoice` must produce the final user-visible words. Regenerate a bad passage from corrected notes
+instead. Even these bounded edits may make the result read more AI-like or change detector results.
 
 You can score the exact final artifact after editing:
 
@@ -182,6 +186,10 @@ An agent can use Voiceprint in three ways:
 
 The third workflow is useful for factual writing: your answers become notes instead of leaving the
 voice model to guess.
+
+For edits, the MCP server also exposes `edit_span` for one exact selection and `revoice` for a
+whole provisional draft. Both guarantee that the trained adapter, rather than the planning model,
+writes the final returned prose.
 
 ## Prepare a good corpus
 

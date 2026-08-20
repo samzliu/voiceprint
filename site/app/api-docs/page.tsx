@@ -16,7 +16,7 @@ const endpoints = [
   ["POST", "/v1/training-jobs", "Start training from an entitlement"],
   ["GET", "/v1/jobs/{id}", "Poll training or generation"],
   ["GET", "/v1/models", "List custom models"],
-  ["POST", "/v1/generations", "Write, continue, or rewrite"],
+  ["POST", "/v1/generations", "Write, continue, revoice, or edit an exact span"],
   ["POST", "/v1/assistant", "Prepare a generation request without spending a credit"],
   ["POST", "/v1/scores", "Score the exact final artifact for style similarity"],
   ["GET", "/v1/credits", "Read generation-credit balance"],
@@ -42,7 +42,7 @@ export default function ApiDocsPage() {
   "warnings": ["1842 usable words passed…"]
 }`}</code></pre></section>
         <section id="jobs"><span>03</span><h2>Asynchronous jobs</h2><p>Training and cold generation return <code>202 Accepted</code>, a job ID, and a <code>Location</code> header. Poll that location until the job is completed or failed. Use an <code>Idempotency-Key</code> on every credit-consuming or job-creating request.</p></section>
-        <section id="generation"><span>04</span><h2>Generation</h2><p>The orchestration model may structure a request and call tools. The Voiceprint adapter writes the prose. Raw output is never silently polished afterward; edited output is a separate, explicit pass.</p><pre><code>{`POST /v1/generations
+        <section id="generation"><span>04</span><h2>Generation</h2><p>The orchestration model may structure requests and privately plan corrections, but the Voiceprint adapter always writes the final user-visible prose. Intermediate correction drafts are never returned.</p><pre><code>{`POST /v1/generations
 Idempotency-Key: 85cbe…
 
 {
@@ -55,7 +55,22 @@ Idempotency-Key: 85cbe…
     "memory is a control problem, not storage"
   ],
   "corrections": []
-}`}</code></pre><p><b>Raw mode</b> preserves adapter output and may contain errors. <b>Edited mode</b> permits factual and mechanical corrections only; the exact final artifact must be rescored.</p></section>
+}`}</code></pre><p><b>Raw mode</b> preserves adapter output and may contain errors. <b>Edited mode</b> permits factual and mechanical corrections only, then sends the private correction draft back through Voiceprint. The exact final artifact must be rescored.</p><pre><code>{`// Revoice a complete private draft
+{
+  "model_id": "model_123",
+  "operation": "revoice",
+  "text": "Private intermediate draft…"
+}
+
+// Edit one exact span; offsets use JavaScript string indices (end-exclusive)
+{
+  "model_id": "model_123",
+  "operation": "edit_span",
+  "text": "The complete existing artifact…",
+  "selection_start": 4,
+  "selection_end": 12,
+  "instruction": "Replace the outdated date with August 20, 2026"
+}`}</code></pre><p>For <code>edit_span</code>, the coordinator privately plans only the replacement. Voiceprint revoices that replacement and the server preserves everything outside the selected span. Responses attest <code>final_writer: voiceprint</code> and <code>finalized_by_adapter: true</code>.</p></section>
         <section id="endpoints"><span>05</span><h2>Endpoints</h2><div className="endpoint-list">{endpoints.map(([method, path, description]) => <div key={`${method}-${path}`}><b>{method}</b><code>{path}</code><span>{description}</span></div>)}</div></section>
         <section id="errors"><span>06</span><h2>Errors</h2><p>Expected invalid input is a typed 4xx response, not a failed training job. Infrastructure errors are retried; failed generation restores its credit.</p><pre><code>{`{
   "error": {
