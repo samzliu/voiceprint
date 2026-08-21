@@ -41,7 +41,7 @@ const TRAINING_BUNDLE_CENTS = 100;          // +$1 generation bundled with train
 const MIN_GENERATION_CENTS = 1;             // need at least 1c of balance to start
 const MAX_TOPUP_CENTS = 100_000;            // $1,000 sliding-scale ceiling (safety)
 const SHARED_MODEL_ID = "shared";
-const SHARED_MODEL_NAME = "Voice of the Founder";
+const SHARED_MODEL_NAME = "Voiceprint default";
 const SHARED_ADAPTER_PATH = "/voices/sam3";
 const SHARED_PROVIDER_MODEL = "Qwen/Qwen2.5-14B";
 

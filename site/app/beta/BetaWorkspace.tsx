@@ -341,6 +341,7 @@ function CorpusView({
   return (
     <div className="workspace-view corpus-view">
       <header className="workspace-header"><h1>Corpus</h1><p>Add your writing. We clean it up and check there&rsquo;s enough to train on.</p></header>
+      <div className="tips"><b>What makes a good corpus</b><ul><li>Use <b>one consistent voice</b> — a single register, not a mix of formats or people.</li><li>About <b>1,000–2,000 words</b> is enough; add more of the same voice for a stronger result.</li></ul></div>
       <div className="corpus-layout">
         <aside className="corpus-list">
           <form onSubmit={createCorpus}><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="New corpus name" required /><button aria-label="Create corpus">+</button></form>
@@ -400,7 +401,7 @@ function ModelsView({ models, corpora, onRefresh, onNotice }: { models: Model[];
     try {
       const created = await api<{ id: string }>(`/v1/corpora/${selectedCorpus}/revisions`, { method: "POST" });
       setRevision(created.id);
-      onNotice("Corpus frozen. It will not change while the model trains.");
+      onNotice("Corpus locked. Your writing won\u2019t change while training runs.");
     } catch (error) { onNotice(error instanceof Error ? error.message : "Could not freeze the corpus."); }
     setBusy(false);
   }
@@ -429,10 +430,11 @@ function ModelsView({ models, corpora, onRefresh, onNotice }: { models: Model[];
 
   return <div className="workspace-view models-view">
     <header className="workspace-header"><h1>Models</h1><p>Train a private model on your own writing.</p></header>
+    <div className="tips"><b>Before you train</b><ul><li>Use <b>one consistent voice</b> — a single register (say, your essays), not a mix of formats.</li><li>About <b>1,000–2,000 words</b> is enough. More of the same voice helps; mixed voices hurt.</li></ul></div>
     <section className="training-builder">
-      <div><span>1 · CHOOSE CORPUS</span><select value={selectedCorpus} onChange={(event) => { setSelectedCorpus(event.target.value); setRevision(""); }}>{corpora.map((corpus) => <option key={corpus.id} value={corpus.id}>{corpus.name} · {corpus.usable_words} words</option>)}</select><button onClick={freezeCorpus} disabled={!selectedCorpus || busy}>{revision ? "REVISION FROZEN ✓" : "FREEZE READY CORPUS"}</button></div>
-      <div><span>2 · NAME MODEL</span><input value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={80} /></div>
-      <div><span>3 · TRAIN</span><b>$20</b><small>Includes a custom voice and $1 of free generation.</small>{!entitled ? <button onClick={buyTraining} disabled={!revision || busy}>PURCHASE TRAINING →</button> : <button onClick={train} disabled={!revision || !modelName || busy}>START TRAINING →</button>}</div>
+      <div><span>1 · CHOOSE CORPUS</span><select value={selectedCorpus} onChange={(event) => { setSelectedCorpus(event.target.value); setRevision(""); }}>{corpora.map((corpus) => <option key={corpus.id} value={corpus.id}>{corpus.name} · {corpus.usable_words} words</option>)}</select><small className="step-hint">Locks this exact writing into a snapshot so it can&rsquo;t change while training runs.</small><button onClick={freezeCorpus} disabled={!selectedCorpus || busy}>{revision ? "Corpus locked ✓" : "Lock corpus for training"}</button></div>
+      <div><span>2 · NAME YOUR VOICE</span><input value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={80} /><small className="step-hint">A label for this voice, e.g. &ldquo;My essays&rdquo; or &ldquo;Work emails&rdquo;.</small></div>
+      <div><span>3 · TRAIN YOUR VOICE</span><p className="train-note">A one-time <b>$20</b> trains a private model on your writing, and includes $1 of generation to start.</p>{!entitled ? <button onClick={buyTraining} disabled={!revision || busy}>Train my voice →</button> : <button onClick={train} disabled={!revision || !modelName || busy}>Start training →</button>}</div>
     </section>
     <section className="model-list"><span>YOUR MODELS · {models.length}</span>{models.map((model) => <article key={model.id}><div className="model-mark">VP</div><div><h3>{model.name}</h3><p>Custom voice model</p></div><Status status={model.status} /></article>)}{!models.length && <p>No trained models yet.</p>}</section>
   </div>;
