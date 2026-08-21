@@ -530,3 +530,69 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
 .install-links { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-top: 20px; }
 .install-links a:not(.button) { font: 12px var(--mono); }
 .footer a { color: var(--ink); font: 12px var(--mono); }
+
+/* ============================================================
+   Engram-calm pass: near-white, minimal color, black CTAs
+   ============================================================ */
+:root { --paper: #fbfbf9; }
+body { background: #fbfbf9; }
+
+/* Big serif heads already weight 400; ease letter-spacing for calm */
+h1 { letter-spacing: -.045em; }
+
+/* Primary CTAs → black, not lime */
+.button-generate, .tryit button, .chat-input .button {
+  background: var(--ink); color: var(--paper); border: 1px solid var(--ink);
+}
+.button-generate:hover:not(:disabled), .tryit button:hover, .chat-input .button:hover:not(:disabled) { background: #33332d; color: var(--paper); }
+.button-dark:hover { background: #33332d; color: var(--paper); }
+
+/* Landing: quiet step numerals + hairline rules */
+.steps { border-color: #e8e7e1; }
+.steps li, .steps li:first-child { border-color: #e8e7e1; }
+.steps b { background: #eef2ea; border: 1px solid #d8ddd2; color: var(--ink); }
+.install { border-color: #e8e7e1; }
+.install code { border-color: #e2e1da; }
+.proof-lede strong { background: #eef2ea; padding: 1px 5px; }
+
+/* Train card: a normal card, not a lime block */
+.training-builder > div:last-child { border: 0; background: var(--white); border-left: 1px solid #e8e7e1; }
+.training-builder > div { border-right: 1px solid #e8e7e1; }
+.training-builder b { color: var(--ink); font: 500 44px var(--sans); }
+.training-builder small { font: 12px/1.5 var(--sans); color: var(--muted); }
+.training-builder button { border: 1px solid var(--ink); border-radius: 8px; background: var(--ink); color: var(--paper); font: 600 11px var(--sans); letter-spacing: .03em; }
+.training-builder button:hover:not(:disabled) { background: #33332d; }
+
+/* Corpus workbench: clean card, hairline, sans */
+.corpus-layout { display: grid; grid-template-columns: minmax(300px, .78fr) minmax(0, 1.22fr); border: 1px solid #e8e7e1; border-radius: 12px; overflow: hidden; background: var(--white); }
+.corpus-list { background: #faf9f6; border-right: 1px solid #e8e7e1; }
+.corpus-list form input { border: 1px solid #e2e1da; border-right: 0; border-radius: 8px 0 0 8px; font: 13px var(--sans); }
+.corpus-list form button { border: 1px solid #e2e1da; border-radius: 0 8px 8px 0; background: var(--white); color: var(--ink); }
+.corpus-list > button { border-radius: 8px; border-bottom: 0; }
+.corpus-list > button.active { background: #f0efe9; color: var(--ink); }
+.corpus-list > button b { font: 500 13px var(--sans); }
+.corpus-list > button.active span { color: var(--muted); }
+.corpus-list > button span, .corpus-list > p { font: 12px var(--sans); }
+.corpus-title h2 { font: 500 26px var(--sans); }
+.corpus-files { border-top: 1px solid #e8e7e1; }
+.corpus-files > div { border-color: #eceae3; font: 13px var(--sans); }
+.drop-zone { border: 1px dashed #cfcdc4; border-radius: 10px; background: #faf9f6; font: 13px var(--sans); }
+.drop-zone.dragging, .drop-zone:hover { background: #f2f1ec; }
+.drop-zone b { font: 600 11px var(--sans); letter-spacing: .04em; }
+.paste-form { gap: 10px; }
+.paste-form input, .paste-form textarea { border: 1px solid #e2e1da; border-radius: 8px; background: var(--white); font: 13px var(--sans); }
+
+/* Empty states: quiet sans, no serif drama */
+.empty-work b { font: 600 11px var(--sans); letter-spacing: .04em; color: #a3a299; }
+.empty-work p { max-width: 360px; font: 18px/1.4 var(--sans); color: #6a6961; }
+
+/* Calm neutral focus everywhere (drop the lime inset bar) */
+textarea:focus, input:focus, select:focus { box-shadow: 0 0 0 3px rgba(120,118,105,.10) !important; border-color: #c7c6be !important; }
+.beta-addcredits { color: #cfe0a6; }
+
+/* Landing proof points (incl. no-watermark) */
+.proof-points { margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px 40px; max-width: 900px; }
+.proof-points div { border-top: 1px solid #e8e7e1; padding-top: 14px; }
+.proof-points b { display: block; margin-bottom: 6px; font: 600 12px var(--sans); letter-spacing: .04em; }
+.proof-points p { margin: 0; color: var(--muted); font: 14px/1.55 var(--sans); }
+@media (max-width: 640px) { .proof-points { grid-template-columns: 1fr; } }

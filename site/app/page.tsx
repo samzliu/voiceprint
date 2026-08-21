@@ -38,8 +38,8 @@ export default function Home() {
           <h2 id="proof-title">It reads as human.</h2>
         </header>
         <p className="proof-lede">
-          A full essay drafted by a Voiceprint model, scored{" "}
-          <strong>100% human-written</strong> by Pangram&rsquo;s AI detector.
+          Voiceprint writes in your voice — and nothing about it reads, or flags,
+          as AI.
         </p>
         <div className="proof-shot">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -47,6 +47,16 @@ export default function Home() {
             src="/pangram-human-written.png"
             alt="Pangram AI detector rating a Voiceprint-written essay 100% human-written"
           />
+        </div>
+        <div className="proof-points">
+          <div>
+            <b>READS AS HUMAN</b>
+            <p>A full essay drafted by a Voiceprint model scored 100% human-written by Pangram&rsquo;s detector.</p>
+          </div>
+          <div>
+            <b>NO AI WATERMARK</b>
+            <p>Your final text is written by your own open model — not Claude or GPT — so there&rsquo;s no hidden watermark embedded to flag it as machine-made.</p>
+          </div>
         </div>
       </section>
 
