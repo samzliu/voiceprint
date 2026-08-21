@@ -18,8 +18,8 @@ test("server-renders the Voiceprint demo", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /<title>Voiceprint — write in your own voice, not AI slop<\/title>/i);
-  assert.match(html, /Stop writing/);
-  assert.match(html, /It reads as human/);
+  assert.match(html, /Make writing great again/);
+  assert.match(html, /It sounds natural/);
   assert.match(html, /pip install voiceprint/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });

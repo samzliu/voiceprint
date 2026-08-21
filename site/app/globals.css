@@ -624,3 +624,22 @@ textarea:focus, input:focus, select:focus { box-shadow: 0 0 0 3px rgba(120,118,1
 .tryit-suggestions { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
 .tryit-suggestions button { padding: 8px 14px; border: 1px solid #e2e1da; border-radius: 20px; background: var(--white); color: #3a3a33; font: 13px var(--sans); cursor: pointer; }
 .tryit-suggestions button:hover { background: #f2f1ec; border-color: #d7d6cd; }
+
+/* --- Centered hero + Genspark-style try-it box --- */
+.hero { display: block; min-height: auto; padding: 76px 0 68px; text-align: center; }
+.hero-copy { max-width: 820px; margin: 0 auto; }
+.hero-copy h1 { text-align: center; }
+.hero-copy .dek { margin: 22px auto 0; text-align: center; }
+
+.tryit { display: block; max-width: 720px; margin: 40px auto 0; padding: 20px 20px 14px; border: 1px solid #d9d8cf; border-radius: 22px; background: var(--white); box-shadow: 0 2px 10px rgba(20,20,15,.05); text-align: left; }
+.tryit:focus-within { border-color: #b7b6ad; box-shadow: 0 6px 20px rgba(20,20,15,.08); }
+.tryit input { width: 100%; padding: 6px 2px 26px; border: 0 !important; background: transparent; font: 17px/1.5 var(--sans); color: var(--ink); outline: none; }
+.tryit input:focus { box-shadow: none !important; }
+.tryit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tryit-model { padding: 7px 13px; border: 1px solid #e4e3dc; border-radius: 20px; font: 12px var(--sans); color: #6a6961; }
+.tryit-send { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border: 0; border-radius: 20px; background: var(--ink); color: var(--paper); font: 600 13px var(--sans); cursor: pointer; }
+.tryit-send:hover { background: #33332d; }
+
+/* Override stale circular-button rule from the earlier box iteration */
+.tryit .tryit-send { display: inline-flex; align-items: center; gap: 7px; width: auto; height: auto; padding: 9px 18px; border-radius: 20px; font-size: 13px; white-space: nowrap; }
+.tryit .tryit-send span { font-size: 13px; }

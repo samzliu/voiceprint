@@ -23,10 +23,10 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero-copy">
-          <h1>Stop writing<br />AI slop.</h1>
+          <h1>Make writing great again</h1>
           <p className="dek">
             Voiceprint trains a writing model on your own words, so everything
-            you draft sounds like you — not like a chatbot. Natural again.
+            you draft sounds like you, not AI slop.
           </p>
           <TryIt />
         </div>
@@ -34,13 +34,9 @@ export default function Home() {
 
       <section className="proof shell" aria-labelledby="proof-title">
         <header className="section-header">
-          <span>THE PROOF</span>
-          <h2 id="proof-title">It reads as human.</h2>
+          <h2 id="proof-title">It sounds natural</h2>
         </header>
-        <p className="proof-lede">
-          Voiceprint writes in your voice — and nothing about it reads, or flags,
-          as AI.
-        </p>
+        <p className="proof-lede">Voiceprint writes in your voice.</p>
         <div className="proof-shot">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -50,37 +46,35 @@ export default function Home() {
         </div>
         <div className="proof-points">
           <div>
-            <b>READS AS HUMAN</b>
+            <b>Passes as human</b>
             <p>A full essay drafted by a Voiceprint model scored 100% human-written by Pangram&rsquo;s detector.</p>
           </div>
           <div>
-            <b>NO AI WATERMARK</b>
-            <p>Your final text is written by your own open model — not Claude or GPT — so there&rsquo;s no hidden watermark embedded to flag it as machine-made.</p>
+            <b>No AI watermark</b>
+            <p>Your final text is written by your own open model, not Claude or ChatGPT, so there&rsquo;s no hidden watermark.</p>
           </div>
         </div>
       </section>
 
       <section className="how shell" aria-labelledby="how-title">
         <header className="section-header">
-          <span>HOW</span>
-          <h2 id="how-title">No code. A few thousand words.</h2>
+          <h2 id="how-title">Train your own writing model, no code needed</h2>
         </header>
         <p className="how-lede">
           Paste a few pages you&rsquo;ve written. Voiceprint learns your voice
-          and keeps it consistent — no fine-tuning setup, no prompt engineering,
+          and keeps it consistent. No fine-tuning setup, no prompt engineering,
           no data science.
         </p>
         <ol className="steps">
-          <li><b>1</b><h3>Bring your writing</h3><p>A few thousand words you actually wrote.</p></li>
+          <li><b>1</b><h3>Bring your own writing</h3><p>Collect as little as a few thousand words.</p></li>
           <li><b>2</b><h3>Train your voice</h3><p>One click. Voiceprint learns how you write.</p></li>
-          <li><b>3</b><h3>Draft anything</h3><p>Give it the facts; it writes in your voice.</p></li>
+          <li><b>3</b><h3>Draft anything</h3><p>Give it the facts or an outline. It fills in the rest in your voice.</p></li>
         </ol>
       </section>
 
       <section className="install shell">
         <div>
-          <p className="eyebrow">DEVELOPERS · OPEN SOURCE</p>
-          <h2>Use your voice from code.</h2>
+          <h2>Write via API</h2>
           <p className="install-note">
             Every model you train is available through a simple API. Voiceprint
             is open source under MIT.
