@@ -17,9 +17,9 @@ test("server-renders the Voiceprint demo", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>Voiceprint — write in a trained human voice<\/title>/i);
-  assert.match(html, /Give it the facts/);
-  assert.match(html, /What should it write/);
+  assert.match(html, /<title>Voiceprint — write in your own voice, not AI slop<\/title>/i);
+  assert.match(html, /Stop writing/);
+  assert.match(html, /It reads as human/);
   assert.match(html, /pip install voiceprint/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });

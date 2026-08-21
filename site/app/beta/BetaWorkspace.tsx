@@ -340,7 +340,7 @@ function CorpusView({
 
   return (
     <div className="workspace-view corpus-view">
-      <header className="workspace-header"><div><p className="eyebrow">01 / CORPUS</p><h1>Your writing,<br />before the model.</h1></div><p>We extract prose, remove duplicates, and block training until there is enough real writing to learn from.</p></header>
+      <header className="workspace-header"><h1>Corpus</h1><p>Add your writing. We clean it up and check there&rsquo;s enough to train on.</p></header>
       <div className="corpus-layout">
         <aside className="corpus-list">
           <form onSubmit={createCorpus}><input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="New corpus name" required /><button aria-label="Create corpus">+</button></form>
@@ -428,7 +428,7 @@ function ModelsView({ models, corpora, onRefresh, onNotice }: { models: Model[];
   }
 
   return <div className="workspace-view models-view">
-    <header className="workspace-header"><div><p className="eyebrow">02 / MODELS</p><h1>One corpus.<br />One trained voice.</h1></div><p>Train a private model on your own writing.</p></header>
+    <header className="workspace-header"><h1>Models</h1><p>Train a private model on your own writing.</p></header>
     <section className="training-builder">
       <div><span>1 · CHOOSE CORPUS</span><select value={selectedCorpus} onChange={(event) => { setSelectedCorpus(event.target.value); setRevision(""); }}>{corpora.map((corpus) => <option key={corpus.id} value={corpus.id}>{corpus.name} · {corpus.usable_words} words</option>)}</select><button onClick={freezeCorpus} disabled={!selectedCorpus || busy}>{revision ? "REVISION FROZEN ✓" : "FREEZE READY CORPUS"}</button></div>
       <div><span>2 · NAME MODEL</span><input value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={80} /></div>
@@ -447,6 +447,7 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState("");
+  const [generating, setGenerating] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const selectedModel = modelId || ready[0]?.id || "";
 
@@ -456,6 +457,7 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
 
   async function requestDraft(input: DraftProposal) {
     setBusy(true);
+    setGenerating(true);
     try {
       let result = await api<GenerationJob>("/v1/generations", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(input) });
       for (let attempt = 0; !result.result && result.status !== "failed" && attempt < 240; attempt += 1) {
@@ -468,6 +470,7 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
       setMessages((prev) => [...prev, { role: "assistant", content: "Draft ready — it is in the editor on the right. Edit it there, or tell me what to change and I will prepare a revision." }]);
       await onRefresh();
     } catch (error) { onNotice(error instanceof Error ? error.message : "Could not generate."); }
+    setGenerating(false);
     setBusy(false);
   }
 
@@ -521,7 +524,8 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
             <div className="chat-bubble">{message.content}</div>
             {message.proposal && <div className="assistant-proposal"><b>{message.proposal.model_name} · {message.proposal.length} · {message.proposal.mode}</b><ul>{message.proposal.notes.map((note) => <li key={note}>{note}</li>)}</ul><button type="button" disabled={busy || credits < 1} onClick={() => { if (message.proposal) void requestDraft(message.proposal); }}>CONFIRM &amp; GENERATE →</button></div>}
           </div>)}
-          {busy && <div className="chat-msg chat-assistant"><span className="chat-role">VOICEPRINT</span><div className="chat-bubble chat-typing"><span></span><span></span><span></span></div></div>}
+          {busy && !generating && <div className="chat-msg chat-assistant"><span className="chat-role">VOICEPRINT</span><div className="chat-bubble chat-typing"><span></span><span></span><span></span></div></div>}
+          {generating && <div className="chat-msg chat-assistant"><span className="chat-role">VOICEPRINT</span><div className="chat-bubble chat-writing"><span className="spinner" /> Warming up your voice and writing your draft. The first request after a pause can take up to a minute.</div></div>}
         </div>
         <form className="chat-input" onSubmit={onChatSubmit}>
           <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onChatKeyDown} rows={2} placeholder="Type your request…" />
@@ -530,7 +534,9 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
       </section>
       <section className="draft-panel">
         <div className="draft-head"><span>{draft ? "DRAFT · EDITABLE" : "DRAFT"}</span><button type="button" onClick={() => draft && navigator.clipboard.writeText(draft)} disabled={!draft}>COPY</button></div>
-        {draft
+        {generating
+          ? <div className="draft-loading"><span className="spinner" /><p>Warming up the model and writing your draft…</p><small>The first request after a pause can take up to a minute.</small></div>
+          : draft
           ? <><textarea className="draft-editor" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck /><small>{warning}</small></>
           : <div className="draft-placeholder"><p>Your draft will appear here.</p></div>}
       </section>
@@ -546,5 +552,5 @@ function ApiView({ onNotice }: { onNotice: (message: string) => void }) {
       setKey(created.key);
     } catch (error) { onNotice(error instanceof Error ? error.message : "Could not create the key."); }
   }
-  return <div className="workspace-view api-view"><header className="workspace-header"><div><p className="eyebrow">04 / API</p><h1>The same tools,<br />from your code.</h1></div><p>Create corpora, train models, generate drafts, and inspect jobs through the same capability layer used by this workspace.</p></header><div className="api-grid"><section><span>PERSONAL API KEY</span><label>KEY NAME<input value={name} onChange={(event) => setName(event.target.value)} /></label><button className="button" onClick={createKey}>CREATE KEY <span>→</span></button>{key && <div className="key-reveal"><b>Copy this now. It will not be shown again.</b><code>{key}</code><button onClick={() => navigator.clipboard.writeText(key)}>COPY</button></div>}</section><section><span>QUICK START</span><pre><code>{`curl https://voiceprint.com/v1/models \\\n  -H "Authorization: Bearer vp_live_…"`}</code></pre><a href="/api-docs">OPEN API REFERENCE →</a></section></div></div>;
+  return <div className="workspace-view api-view"><header className="workspace-header"><h1>API</h1><p>Everything in this workspace, from your code.</p></header><div className="api-grid"><section><span>PERSONAL API KEY</span><label>KEY NAME<input value={name} onChange={(event) => setName(event.target.value)} /></label><button className="button" onClick={createKey}>CREATE KEY <span>→</span></button>{key && <div className="key-reveal"><b>Copy this now. It will not be shown again.</b><code>{key}</code><button onClick={() => navigator.clipboard.writeText(key)}>COPY</button></div>}</section><section><span>QUICK START</span><pre><code>{`curl https://voiceprint.com/v1/models \\\n  -H "Authorization: Bearer vp_live_…"`}</code></pre><a href="/api-docs">OPEN API REFERENCE →</a></section></div></div>;
 }

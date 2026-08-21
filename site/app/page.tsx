@@ -1,15 +1,11 @@
 import type { Metadata } from "next";
-import { Demo } from "./Demo";
+import { TryIt } from "./TryIt";
 
 export const metadata: Metadata = {
-  title: "Voiceprint — write in a trained human voice",
+  title: "Voiceprint — write in your own voice, not AI slop",
   description:
-    "A live demo of Voiceprint: a personal writing model trained on real prose.",
+    "Train a writing model on your own words. No code, a few thousand words, and everything you draft sounds like you.",
 };
-
-const exampleBrief = `Explain why AI memory is a control problem, not just a storage problem.
-Mention context distillation, selective retrieval, and habits that become reusable skills.
-End with a practical implication for people building agents.`;
 
 export default function Home() {
   return (
@@ -19,7 +15,7 @@ export default function Home() {
           VOICEPRINT<span className="wordmark-dot">●</span>
         </a>
         <div className="nav-links">
-          <a href="/beta">Beta workspace →</a>
+          <a href="/beta">Sign in →</a>
           <a href="https://github.com/samzliu/voiceprint">GitHub ↗</a>
           <a href="https://pypi.org/project/voiceprint/">PyPI ↗</a>
         </div>
@@ -27,81 +23,70 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero-copy">
-          <p className="eyebrow"><span className="live-dot" /> LIVE · A REAL TRAINED VOICE</p>
-          <h1>Give it the facts.<br />Get back a voice.</h1>
+          <h1>Stop writing<br />AI slop.</h1>
           <p className="dek">
-            Voiceprint learns how you write from your own words, then drafts in
-            your voice. This demo runs one real trained voice — not a prompt
-            pretending to be a person.
+            Voiceprint trains a writing model on your own words, so everything
+            you draft sounds like you — not like a chatbot. Natural again.
           </p>
+          <TryIt />
         </div>
-        <div className="hero-stamp" aria-hidden="true">
-          <span>8793</span>
-          <small>TRAINING<br />WORDS</small>
-        </div>
-      </section>
-
-      <section className="demo-section shell" aria-labelledby="demo-title">
-        <header className="section-header">
-          <span>01 / TRY IT</span>
-          <h2 id="demo-title">What should it write?</h2>
-        </header>
-        <Demo initialBrief={exampleBrief} />
       </section>
 
       <section className="proof shell" aria-labelledby="proof-title">
         <header className="section-header">
-          <span>02 / THE OUTPUT</span>
-          <h2 id="proof-title">Not a style prompt.</h2>
+          <span>THE PROOF</span>
+          <h2 id="proof-title">It reads as human.</h2>
         </header>
-        <div className="proof-grid">
-          <blockquote>
-            “The valuable thing an agent carries forward may not be a fact. It
-            may be a policy: check your answer before you ship it; split an
-            ambiguous task before acting; back out when the evidence changes.”
-          </blockquote>
-          <div className="proof-note">
-            <p>
-              The raw Voiceprint draft scored <strong>0.851</strong> before editing.
-              The quotation shown here comes from the substantially edited,
-              fact-checked version; that final version was not assigned the raw score.
-            </p>
-            <a href="https://github.com/samzliu/voiceprint/blob/main/examples/ai-memory-is-a-control-problem.raw.md">Read the raw output ↗</a>
-            <a href="https://github.com/samzliu/voiceprint/blob/main/examples/ai-memory-is-a-control-problem.md">Read the edited sample ↗</a>
-          </div>
+        <p className="proof-lede">
+          A full essay drafted by a Voiceprint model, scored{" "}
+          <strong>100% human-written</strong> by Pangram&rsquo;s AI detector.
+        </p>
+        <div className="proof-shot">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/pangram-human-written.png"
+            alt="Pangram AI detector rating a Voiceprint-written essay 100% human-written"
+          />
         </div>
       </section>
 
       <section className="how shell" aria-labelledby="how-title">
         <header className="section-header">
-          <span>03 / HOW IT WORKS</span>
-          <h2 id="how-title">Your prose, compressed.</h2>
+          <span>HOW</span>
+          <h2 id="how-title">No code. A few thousand words.</h2>
         </header>
+        <p className="how-lede">
+          Paste a few pages you&rsquo;ve written. Voiceprint learns your voice
+          and keeps it consistent — no fine-tuning setup, no prompt engineering,
+          no data science.
+        </p>
         <ol className="steps">
-          <li><b>1</b><h3>Bring your writing</h3><p>A few pages you actually wrote — essays, posts, emails, or newsletters.</p></li>
-          <li><b>2</b><h3>Train your voice</h3><p>Voiceprint learns the patterns in how you write — word choice, rhythm, and structure.</p></li>
-          <li><b>3</b><h3>Write from facts</h3><p>Give it the points to make. It drafts in your voice, and you edit from there.</p></li>
+          <li><b>1</b><h3>Bring your writing</h3><p>A few thousand words you actually wrote.</p></li>
+          <li><b>2</b><h3>Train your voice</h3><p>One click. Voiceprint learns how you write.</p></li>
+          <li><b>3</b><h3>Draft anything</h3><p>Give it the facts; it writes in your voice.</p></li>
         </ol>
-        <div className="mode-note">
-          <p><strong>YOUR WORDS IN, YOUR VOICE OUT.</strong> It writes from the facts you give it, in the style it learned from you.</p>
-          <p><strong>YOU STAY IN CONTROL.</strong> Every draft is yours to edit before it goes out.</p>
-        </div>
       </section>
 
       <section className="install shell">
         <div>
-          <p className="eyebrow">OPEN SOURCE · MIT</p>
-          <h2>Run your own voice.</h2>
+          <p className="eyebrow">DEVELOPERS · OPEN SOURCE</p>
+          <h2>Use your voice from code.</h2>
+          <p className="install-note">
+            Every model you train is available through a simple API. Voiceprint
+            is open source under MIT.
+          </p>
         </div>
         <code><span>$</span> pip install voiceprint</code>
-        <a className="button button-dark" href="https://github.com/samzliu/voiceprint">
-          View source <span>↗</span>
-        </a>
+        <div className="install-links">
+          <a className="button button-dark" href="/api-docs">API reference <span>→</span></a>
+          <a href="https://github.com/samzliu/voiceprint">GitHub ↗</a>
+          <a href="https://pypi.org/project/voiceprint/">PyPI ↗</a>
+        </div>
       </section>
 
       <footer className="footer shell">
         <span>VOICEPRINT © 2026</span>
-        <span>THE DEMO IS AI-GENERATED. THE VOICE IS TRAINED.</span>
+        <a href="/beta">Start writing →</a>
       </footer>
     </main>
   );

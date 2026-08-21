@@ -488,3 +488,45 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
 .write-view .draft-editor { max-height: 66vh; }
 .write-view .draft-placeholder { padding: 64px 40px; }
 .write-view .draft-placeholder p { margin: 0; font: 15px var(--sans); color: #a3a299; }
+
+/* --- Clean tab headers + softened Corpus/Models/API sections --- */
+.workspace-header { min-height: auto; display: block; grid-template-columns: none; gap: 0; padding-bottom: 20px; margin-bottom: 26px; border-bottom: 1px solid #e8e7e1; }
+.workspace-header h1, .onboarding h1 { font: 600 clamp(24px, 3vw, 30px)/1.15 var(--sans); letter-spacing: -.02em; }
+.workspace-header > p { max-width: 620px; margin: 10px 0 0; color: var(--muted); font: 14px/1.55 var(--sans); }
+.workspace-view { padding-top: 34px; }
+.training-builder, .model-list, .api-grid { border: 1px solid #e8e7e1; border-radius: 12px; background: var(--white); }
+.training-builder { border-top: 1px solid #e8e7e1; overflow: hidden; }
+.model-list > span, .training-builder span, .api-grid section > span, .corpus-title span, .corpus-files > span, .readiness-head span { font: 600 10px var(--sans); letter-spacing: .05em; color: var(--muted); }
+.api-grid input, .training-builder input, .training-builder select, .onboarding input, .onboarding textarea { border: 1px solid #e2e1da; border-radius: 8px; }
+.api-grid input:focus, .training-builder input:focus, .training-builder select:focus, .onboarding input:focus, .onboarding textarea:focus { border-color: #c7c6be; box-shadow: 0 0 0 3px rgba(120,118,105,.10); }
+.model-list article { border-color: #eceae3; }
+.model-mark { background: #f2f1ec; color: var(--ink); }
+.corpus-list { background: #faf9f6; border-right: 1px solid #e8e7e1; }
+.drop-zone { border: 1px dashed #cfcdc4; background: #faf9f6; }
+.drop-zone.dragging, .drop-zone:hover { background: #f2f1ec; }
+.readiness-card { border: 1px solid #e8e7e1; border-radius: 12px; }
+.onboarding label, .api-grid label, .composer label { font: 600 10px var(--sans); letter-spacing: .04em; color: var(--muted); }
+
+/* --- Loading / warming-up states (Write) --- */
+.spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #d7d6cd; border-top-color: #6a6961; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.chat-writing { display: flex; align-items: flex-start; gap: 2px; background: var(--paper); color: #6a6961; font: 14px/1.55 var(--sans); }
+.draft-loading { flex: 1; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 60px 40px; text-align: center; }
+.draft-loading .spinner { width: 22px; height: 22px; border-width: 3px; margin: 0; }
+.draft-loading p { margin: 0; font: 15px var(--sans); color: #6a6961; }
+.draft-loading small { color: #a3a299; font: 12px var(--sans); }
+
+/* --- Landing: try-it box, proof shot, links --- */
+.hero-copy .dek { margin: 24px 0 0; max-width: 620px; }
+.tryit { margin-top: 32px; display: flex; gap: 10px; max-width: 620px; }
+.tryit input { flex: 1; padding: 15px 18px; border: 1px solid var(--ink); border-radius: 0; background: var(--white); color: var(--ink); font: 15px var(--sans); outline: none; }
+.tryit input:focus { box-shadow: inset 4px 0 var(--signal); }
+.tryit button { padding: 0 22px; border: 1px solid var(--ink); background: var(--signal); color: var(--ink); font: 700 12px var(--mono); letter-spacing: .04em; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.proof-lede, .how-lede { max-width: 620px; margin: 0 0 28px; color: var(--muted); font: 17px/1.55 var(--sans); }
+.proof-lede strong { color: var(--ink); }
+.proof-shot { border: 1px solid var(--ink); box-shadow: 10px 10px 0 var(--ink); background: var(--white); overflow: hidden; max-width: 980px; }
+.proof-shot img { display: block; width: 100%; height: auto; }
+.install-note { margin: 14px 0 0; max-width: 460px; color: var(--muted); font: 14px/1.55 var(--sans); }
+.install-links { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; margin-top: 20px; }
+.install-links a:not(.button) { font: 12px var(--mono); }
+.footer a { color: var(--ink); font: 12px var(--mono); }
