@@ -23,6 +23,23 @@ type AssistantReply = {
 };
 
 const MAX_MESSAGE_LENGTH = 4_000;
+const MAX_HISTORY_TURNS = 24;
+
+type ChatTurn = { role: "user" | "assistant"; content: string };
+
+function parseHistory(body: Record<string, unknown>): ChatTurn[] {
+  const raw = Array.isArray(body.messages) ? body.messages : [];
+  const turns: ChatTurn[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const role = (entry as { role?: unknown }).role;
+    const content = (entry as { content?: unknown }).content;
+    if ((role === "user" || role === "assistant") && typeof content === "string" && content.trim()) {
+      turns.push({ role, content: content.trim().slice(0, MAX_MESSAGE_LENGTH) });
+    }
+  }
+  return turns.slice(-MAX_HISTORY_TURNS);
+}
 const DEFAULT_ROUTER_MODEL = "openai/gpt-5.6-luna";
 
 async function workspace(env: AppEnv, ownerId: string) {
@@ -84,7 +101,12 @@ export async function runWritingAssistant(
   user: AssistantUser,
   body: Record<string, unknown>,
 ): Promise<AssistantReply> {
-  const message = typeof body.message === "string" ? body.message.trim() : "";
+  const history = parseHistory(body);
+  const latest = history.length ? history[history.length - 1] : null;
+  if (latest && latest.role !== "user") {
+    throw new Error("The most recent message must be from the writer.");
+  }
+  const message = latest ? latest.content : (typeof body.message === "string" ? body.message.trim() : "");
   if (!message || message.length > MAX_MESSAGE_LENGTH) {
     throw new Error("Use a request between 1 and 4,000 characters.");
   }
@@ -157,9 +179,15 @@ Keep your response concise. Never claim the prepared request has already generat
     },
   });
 
-  const result = await agent.generate({
-    prompt: `Current defaults: ${JSON.stringify(defaults)}\n\nWriter request:\n${message}`,
-  });
+  const conversation: ChatTurn[] = history.length ? history : [{ role: "user", content: message }];
+  const modelMessages = conversation.map((turn, index) => ({
+    role: turn.role,
+    content:
+      index === conversation.length - 1 && turn.role === "user"
+        ? `Current defaults: ${JSON.stringify(defaults)}\n\nWriter request:\n${turn.content}`
+        : turn.content,
+  }));
+  const result = await agent.generate({ messages: modelMessages });
   const prepared = result.steps
     .flatMap((step) => step.toolResults)
     .find((item) => item.toolName === "prepareDraft");

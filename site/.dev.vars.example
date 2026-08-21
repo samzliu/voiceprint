@@ -1,0 +1,32 @@
+# Voiceprint site — secret manifest (copy to `.dev.vars` for local dev).
+# In production these are set with:  npx wrangler secret put <NAME>
+# (wrangler secrets live in Cloudflare, NOT in any file, and override wrangler.jsonc vars.)
+
+# --- App ---
+APP_URL=https://voiceprint.example.com          # public origin of the deployed site
+ADMIN_EMAILS=samzliu@gmail.com                  # comma-separated operator emails
+PROVIDER_CALLBACK_SECRET=                        # 16+ random chars; signs Modal->site training-complete callbacks
+
+# --- Stripe (USE TEST-MODE KEYS while this product is under test: sk_test_...) ---
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_TRAINING_PRICE_ID=price_...              # one-time training purchase price (created in THIS account)
+STRIPE_CREDIT_PRICE_ID=price_...                # generation-credit pack price
+STRIPE_WEBHOOK_SECRET=whsec_...                 # from the /v1/webhooks/stripe endpoint
+
+# --- Modal (GPU training + generation) ---
+MODAL_KEY=
+MODAL_SECRET=
+MODAL_ENDPOINT=                                  # public-demo generate endpoint
+MODAL_RESULT_ENDPOINT=                           # public-demo result endpoint
+HOSTED_TRAIN_ENDPOINT=                           # beta training kick-off
+HOSTED_TRAIN_RESULT_ENDPOINT=
+HOSTED_GENERATE_ENDPOINT=                         # beta generation kick-off
+HOSTED_GENERATE_RESULT_ENDPOINT=
+
+# --- Postmark (login + completion email) ---
+POSTMARK_SERVER_TOKEN=...
+EMAIL_FROM=Voiceprint <noreply@voiceprint.example.com>
+
+# --- Model router (Vercel AI Gateway) ---
+AI_GATEWAY_API_KEY=
+ROUTER_MODEL=openai/gpt-5.6-luna                 # optional override; default is verified

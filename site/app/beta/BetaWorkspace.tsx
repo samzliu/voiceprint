@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useState } from "react";
+import { ChangeEvent, DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 type Tab = "corpus" | "models" | "write" | "api";
@@ -52,6 +52,7 @@ type GenerationResult = {
   finalized_by_adapter?: boolean;
 };
 type GenerationJob = { id: string; status: string; result?: GenerationResult };
+type ChatMessage = { role: "user" | "assistant"; content: string; proposal?: DraftProposal | null };
 
 const ALL_SCOPES = [
   "corpora:read",
@@ -85,6 +86,10 @@ export function BetaWorkspace() {
   const [models, setModels] = useState<Model[]>([]);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [email, setEmail] = useState("");
+  const [authSent, setAuthSent] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
+  const [devLink, setDevLink] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -126,6 +131,26 @@ export function BetaWorkspace() {
     }
   }
 
+  async function requestSignInLink(event: FormEvent) {
+    event.preventDefault();
+    setAuthNotice("");
+    try {
+      const result = await api<{ sent: boolean; dev_link?: string }>("/v1/auth/request", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      setAuthSent(true);
+      if (result.dev_link) setDevLink(result.dev_link);
+    } catch (error) {
+      setAuthNotice(error instanceof Error ? error.message : "Could not send the sign-in link.");
+    }
+  }
+
+  async function signOut() {
+    await fetch("/v1/auth/logout", { method: "POST" });
+    window.location.href = "/";
+  }
+
   if (authState === "loading") {
     return <main className="beta-loading"><span>VOICEPRINT●</span><p>Opening your workspace…</p></main>;
   }
@@ -137,15 +162,35 @@ export function BetaWorkspace() {
         <section>
           <p className="eyebrow">VOICEPRINT BETA</p>
           <h1>Your writing model<br />starts with your writing.</h1>
-          <p>Sign in, bring a few pages of prose you wrote, and Voiceprint will verify the corpus before you spend anything.</p>
-          <a className="button beta-signin" href="/signin-with-chatgpt?return_to=%2Fbeta">SIGN IN WITH CHATGPT <span>→</span></a>
-          <small>$20 per trained model · training completes within 24 hours</small>
+          <p>Sign in with your email, bring a few pages of prose you wrote, and Voiceprint will verify the corpus before you spend anything.</p>
+          {authSent ? (
+            <div className="beta-auth-sent">
+              <b>Check your email.</b>
+              <p>We sent a sign-in link to {email}. It expires in 15 minutes.</p>
+              {devLink && <p className="beta-auth-devlink"><a href={devLink}>Open dev sign-in link →</a></p>}
+            </div>
+          ) : (
+            <form className="beta-signin-form" onSubmit={requestSignInLink}>
+              <label>EMAIL<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" /></label>
+              <button className="button beta-signin" type="submit">EMAIL ME A SIGN-IN LINK <span>→</span></button>
+              {authNotice && <small role="alert">{authNotice}</small>}
+            </form>
+          )}
         </section>
       </main>
     );
   }
 
   const needsOnboarding = !session?.user.writing_goals;
+  if (needsOnboarding) {
+    return (
+      <main className="beta-onboard">
+        <Link className="wordmark" href="/">VOICEPRINT<span className="wordmark-dot">●</span></Link>
+        {notice && <div className="beta-notice" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss">×</button></div>}
+        <Onboarding onComplete={refresh} />
+      </main>
+    );
+  }
   return (
     <main className="beta-app">
       <aside className="beta-sidebar">
@@ -157,17 +202,15 @@ export function BetaWorkspace() {
           <button className={tab === "api" ? "active" : ""} onClick={() => setTab("api")}><span>04</span> API</button>
         </nav>
         <div className="beta-account">
-          <b>{session?.credits ?? 0} CREDITS</b>
+          <b>${(((session?.credits ?? 0)) / 100).toFixed(2)}</b>
           <span>{session?.user.name || session?.user.email}</span>
-          <a href="/signout-with-chatgpt?return_to=%2F">SIGN OUT</a>
+          <button className="beta-signout" onClick={signOut}>SIGN OUT</button>
         </div>
       </aside>
 
       <section className="beta-main">
         {notice && <div className="beta-notice" role="status"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss">×</button></div>}
-        {needsOnboarding ? (
-          <Onboarding onComplete={refresh} />
-        ) : tab === "corpus" ? (
+        {tab === "corpus" ? (
           <CorpusView
             corpora={corpora}
             active={activeCorpus}
@@ -206,13 +249,13 @@ function Onboarding({ onComplete }: { onComplete: () => Promise<void> }) {
 
   return (
     <div className="onboarding">
-      <p className="eyebrow">SETUP · ABOUT TWO MINUTES</p>
-      <h1>What should this voice help you write?</h1>
+      <p className="eyebrow">WELCOME</p>
+      <h1>Let&rsquo;s set up your account.</h1>
       <form onSubmit={submit}>
-        <label>Your name<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} /></label>
-        <label>What do you usually write?<textarea value={goals} onChange={(event) => setGoals(event.target.value)} required minLength={10} rows={4} placeholder="Essays about technology, investor updates, thoughtful emails…" /></label>
-        <label>Anything we should know about the samples?<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="For example: the newsletters are mine; the company posts were heavily edited." /></label>
-        <button className="button button-generate" disabled={busy}>{busy ? "SAVING…" : "BUILD MY CORPUS"}<span>→</span></button>
+        <label>Your name<input value={name} onChange={(event) => setName(event.target.value)} required maxLength={120} placeholder="Jane Doe" /></label>
+        <label>What&rsquo;s your role?<input value={goals} onChange={(event) => setGoals(event.target.value)} required maxLength={120} placeholder="Founder, writer, marketer…" /></label>
+        <label>What do you want to use Voiceprint for?<textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Investor updates, launch posts, newsletters…" /></label>
+        <button className="button button-generate" disabled={busy}>{busy ? "SAVING…" : "CONTINUE"}<span>→</span></button>
       </form>
     </div>
   );
@@ -377,47 +420,50 @@ function ModelsView({ models, corpora, onRefresh, onNotice }: { models: Model[];
   }
 
   return <div className="workspace-view models-view">
-    <header className="workspace-header"><div><p className="eyebrow">02 / MODELS</p><h1>One corpus.<br />One trained voice.</h1></div><p>Training costs $20, runs in the queue, and completes within 24 hours. Generation is on demand after that.</p></header>
+    <header className="workspace-header"><div><p className="eyebrow">02 / MODELS</p><h1>One corpus.<br />One trained voice.</h1></div><p>Train a private model on your own writing.</p></header>
     <section className="training-builder">
       <div><span>1 · CHOOSE CORPUS</span><select value={selectedCorpus} onChange={(event) => { setSelectedCorpus(event.target.value); setRevision(""); }}>{corpora.map((corpus) => <option key={corpus.id} value={corpus.id}>{corpus.name} · {corpus.usable_words} words</option>)}</select><button onClick={freezeCorpus} disabled={!selectedCorpus || busy}>{revision ? "REVISION FROZEN ✓" : "FREEZE READY CORPUS"}</button></div>
       <div><span>2 · NAME MODEL</span><input value={modelName} onChange={(event) => setModelName(event.target.value)} maxLength={80} /></div>
-      <div><span>3 · TRAIN</span><b>$20</b><small>Includes one custom model and 20 generation credits.</small>{!entitled ? <button onClick={buyTraining} disabled={!revision || busy}>PURCHASE TRAINING →</button> : <button onClick={train} disabled={!revision || !modelName || busy}>START TRAINING →</button>}</div>
+      <div><span>3 · TRAIN</span><b>$20</b><small>Includes a custom voice and $1 of free generation.</small>{!entitled ? <button onClick={buyTraining} disabled={!revision || busy}>PURCHASE TRAINING →</button> : <button onClick={train} disabled={!revision || !modelName || busy}>START TRAINING →</button>}</div>
     </section>
-    <section className="model-list"><span>YOUR MODELS · {models.length}</span>{models.map((model) => <article key={model.id}><div className="model-mark">VP</div><div><h3>{model.name}</h3><p>Qwen 2.5 14B · LoRA adapter</p></div><Status status={model.status} /></article>)}{!models.length && <p>No trained models yet.</p>}</section>
+    <section className="model-list"><span>YOUR MODELS · {models.length}</span>{models.map((model) => <article key={model.id}><div className="model-mark">VP</div><div><h3>{model.name}</h3><p>Custom voice model</p></div><Status status={model.status} /></article>)}{!models.length && <p>No trained models yet.</p>}</section>
   </div>;
 }
 
 function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; credits: number; onRefresh: () => Promise<void>; onNotice: (message: string) => void }) {
   const ready = models.filter((model) => model.status === "ready");
   const [modelId, setModelId] = useState(ready[0]?.id || "");
-  const [notes, setNotes] = useState("");
-  const [mode, setMode] = useState<"raw" | "edited">("raw");
+  const mode = "raw" as const;
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [warning, setWarning] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [assistantRequest, setAssistantRequest] = useState("");
-  const [assistantMessage, setAssistantMessage] = useState("");
-  const [proposal, setProposal] = useState<DraftProposal | null>(null);
-  const [creditPacks, setCreditPacks] = useState(1);
+  const logRef = useRef<HTMLDivElement>(null);
+  const selectedModel = modelId || ready[0]?.id || "";
+
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, busy]);
 
   async function buyCredits() {
     setBusy(true);
     try {
-      const checkout = await api<{ url?: string; granted?: boolean; generation_credits?: number }>("/v1/checkout/credits", {
+      const checkout = await api<{ url?: string; granted?: boolean; amount_cents?: number }>("/v1/checkout/credits", {
         method: "POST",
-        body: JSON.stringify({ packs: creditPacks }),
+        body: JSON.stringify({}),
       });
       if (checkout.url) window.location.assign(checkout.url);
       else if (checkout.granted) {
         await onRefresh();
-        onNotice(`${checkout.generation_credits || creditPacks * 20} generation credits added.`);
+        onNotice(`$${((checkout.amount_cents || 0) / 100).toFixed(2)} added to your balance.`);
       }
     } catch (error) { onNotice(error instanceof Error ? error.message : "Could not start credit checkout."); }
     setBusy(false);
   }
 
   async function requestDraft(input: DraftProposal) {
-    setBusy(true); setDraft("");
+    setBusy(true);
     try {
       let result = await api<GenerationJob>("/v1/generations", { method: "POST", headers: { "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(input) });
       for (let attempt = 0; !result.result && result.status !== "failed" && attempt < 240; attempt += 1) {
@@ -426,60 +472,81 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
       }
       if (!result.result) throw new Error("Generation is still running. You can safely retry from the workspace shortly.");
       setDraft(result.result?.drafts?.[0] || "Generation is queued. Check back shortly.");
-      setWarning(result.result?.warning || "Raw adapter output; verify every fact.");
-      setMode(input.mode);
+      setWarning(result.result?.warning || "Draft ready — verify every fact before publishing.");
+      setMessages((prev) => [...prev, { role: "assistant", content: "Draft ready — it is in the editor on the right. Edit it there, or tell me what to change and I will prepare a revision." }]);
       await onRefresh();
     } catch (error) { onNotice(error instanceof Error ? error.message : "Could not generate."); }
     setBusy(false);
   }
 
-  async function generate(event: FormEvent) {
-    event.preventDefault();
-    await requestDraft({
-      model_id: modelId,
-      model_name: ready.find((model) => model.id === modelId)?.name || "Voice",
-      operation: "write",
-      mode,
-      length: "medium",
-      notes: notes.split(/\n/).map((line) => line.replace(/^[-*]\s*/, "").trim()).filter(Boolean),
-    });
-  }
-
-  async function askAssistant(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setProposal(null);
+  async function submitMessage() {
+    const text = input.trim();
+    if (!text || busy) return;
+    const nextHistory: ChatMessage[] = [...messages, { role: "user", content: text }];
+    setMessages(nextHistory);
+    setInput("");
+    setBusy(true);
     try {
       const result = await api<{ message: string; proposal: DraftProposal | null }>("/v1/assistant", {
         method: "POST",
-        body: JSON.stringify({ message: assistantRequest, model_id: modelId, mode }),
+        body: JSON.stringify({
+          messages: nextHistory.map(({ role, content }) => ({ role, content })),
+          model_id: selectedModel,
+          mode,
+          ...(draft ? { text: draft } : {}),
+        }),
       });
-      setAssistantMessage(result.message);
-      setProposal(result.proposal);
-    } catch (error) { onNotice(error instanceof Error ? error.message : "The assistant could not prepare that request."); }
+      setMessages((prev) => [...prev, { role: "assistant", content: result.message, proposal: result.proposal }]);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "The assistant could not respond.");
+      setMessages((prev) => [...prev, { role: "assistant", content: "Sorry — I could not process that. Please try again." }]);
+    }
     setBusy(false);
   }
 
+  function onChatSubmit(event: FormEvent) {
+    event.preventDefault();
+    void submitMessage();
+  }
+
+  function onChatKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submitMessage();
+    }
+  }
+
   return <div className="workspace-view write-view">
-    <header className="workspace-header"><div><p className="eyebrow">03 / WRITE</p><h1>Facts in.<br />Your voice out.</h1></div><p>The assistant organizes the request. Your adapter writes the prose. Nothing silently polishes the result afterward.</p></header>
-    <section className="credit-store"><div><span>GENERATION BALANCE</span><b>{credits} credits</b></div><label>ADD CREDITS<select value={creditPacks} onChange={(event) => setCreditPacks(Number(event.target.value))}><option value={1}>20 credits</option><option value={2}>40 credits</option><option value={5}>100 credits</option></select></label><button onClick={() => void buyCredits()} disabled={busy}>BUY CREDITS →</button></section>
-    {!ready.length ? <div className="empty-work"><b>NO READY MODEL</b><p>Train a model first. We’ll email you when it is ready.</p></div> : <div className="composer">
-      <div className="composer-controls">
-        <form className="assistant-card" onSubmit={askAssistant}>
-          <div><span>GUIDED REQUEST</span><small>The coordinator gathers facts and calls tools. It never writes the draft.</small></div>
-          <textarea value={assistantRequest} onChange={(event) => setAssistantRequest(event.target.value)} minLength={10} required rows={5} placeholder="I need a short note to engineering leaders explaining why memory control matters. Ask me for anything missing." />
-          <button disabled={busy}>{busy ? "ORGANIZING…" : "PREPARE REQUEST →"}</button>
-          {assistantMessage && <p className="assistant-message">{assistantMessage}</p>}
-          {proposal && <div className="assistant-proposal"><b>{proposal.model_name} · {proposal.length} · {proposal.mode}</b><ul>{proposal.notes.map((note) => <li key={note}>{note}</li>)}</ul><button type="button" disabled={busy || credits < 1} onClick={() => void requestDraft(proposal)}>CONFIRM &amp; GENERATE · 1 CREDIT →</button></div>}
+    <header className="workspace-header"><div><p className="eyebrow">03 / WRITE</p><h1>Chat it through.<br />Your voice out.</h1></div><p>Describe what you want written. Voiceprint drafts it in your voice; edit it on the right.</p></header>
+    <section className="credit-store"><div><span>BALANCE</span><b>${(credits / 100).toFixed(2)}</b></div><div><span>APPROX PAGES LEFT</span><b>~{Math.max(0, Math.floor(credits * 3 / 100))}</b></div><button onClick={() => void buyCredits()} disabled={busy}>ADD CREDITS →</button></section>
+    {!ready.length ? <div className="empty-work"><b>NO READY MODEL</b><p>Train a model first. We&rsquo;ll email you when it is ready.</p></div> : <div className="chat-composer">
+      <section className="chat-panel">
+        <div className="chat-toolbar">
+          <label>VOICE<select value={selectedModel} onChange={(event) => setModelId(event.target.value)}>{ready.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></label>
+        </div>
+        <div className="chat-log" ref={logRef}>
+          {messages.length === 0 && <div className="chat-empty"><p>Tell Voiceprint what you want to write.</p></div>}
+          {messages.map((message, index) => <div key={index} className={`chat-msg chat-${message.role}`}>
+            <span className="chat-role">{message.role === "user" ? "YOU" : "VOICEPRINT"}</span>
+            <div className="chat-bubble">{message.content}</div>
+            {message.proposal && <div className="assistant-proposal"><b>{message.proposal.model_name} · {message.proposal.length} · {message.proposal.mode}</b><ul>{message.proposal.notes.map((note) => <li key={note}>{note}</li>)}</ul><button type="button" disabled={busy || credits < 1} onClick={() => { if (message.proposal) void requestDraft(message.proposal); }}>CONFIRM &amp; GENERATE →</button></div>}
+          </div>)}
+          {busy && <div className="chat-msg chat-assistant"><span className="chat-role">VOICEPRINT</span><div className="chat-bubble chat-typing"><span></span><span></span><span></span></div></div>}
+        </div>
+        <form className="chat-input" onSubmit={onChatSubmit}>
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={onChatKeyDown} rows={2} placeholder="Type your request…" />
+          <button className="button" type="submit" disabled={busy || !input.trim()}>SEND <span>→</span></button>
         </form>
-        <details className="direct-composer">
-          <summary>Or prepare the request yourself</summary>
-          <form onSubmit={generate}><label>VOICE<select value={modelId} onChange={(event) => setModelId(event.target.value)}>{ready.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></label><label>FACTS / NOTES<textarea value={notes} onChange={(event) => setNotes(event.target.value)} required minLength={20} rows={8} placeholder={'- the audience is engineering leaders\n- the problem is memory control, not storage\n- end with the practical implication'} /></label><fieldset><legend>DELIVERY</legend><label className="mode-choice"><input type="radio" checked={mode === "raw"} onChange={() => setMode("raw")} /><span><b>RAW</b>Maximum fidelity; may contain errors.</span></label><label className="mode-choice"><input type="radio" checked={mode === "edited"} onChange={() => setMode("edited")} /><span><b>EDITED</b>Facts and grammar only; detector results may change.</span></label></fieldset><button className="button button-generate" disabled={busy || credits < 1}>{busy ? "WRITING…" : "GENERATE · 1 CREDIT"}<span>→</span></button></form>
-        </details>
-      </div>
-      <section className="composer-output"><div><span>{mode.toUpperCase()} MODE</span><button onClick={() => draft && navigator.clipboard.writeText(draft)}>COPY</button></div>{draft ? <><article>{draft.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : <br key={index} />)}</article><small>{warning}</small></> : <div className="draft-placeholder"><span>Aa</span><p>Your draft will appear here.</p></div>}</section>
+      </section>
+      <section className="draft-panel">
+        <div className="draft-head"><span>{draft ? "DRAFT · EDITABLE" : "DRAFT"}</span><button type="button" onClick={() => draft && navigator.clipboard.writeText(draft)} disabled={!draft}>COPY</button></div>
+        {draft
+          ? <><textarea className="draft-editor" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck /><small>{warning}</small></>
+          : <div className="draft-placeholder"><span>Aa</span><p>Your draft will appear here. Chat on the left to create one, then edit it here.</p></div>}
+      </section>
     </div>}
   </div>;
 }
-
 function ApiView({ onNotice }: { onNotice: (message: string) => void }) {
   const [name, setName] = useState("My integration");
   const [key, setKey] = useState("");

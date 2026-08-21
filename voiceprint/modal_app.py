@@ -229,6 +229,8 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     volumes=VOLUMES,
     scaledown_window=600,
     timeout=900,
+    # Keep one container always warm so the default/shared voice never cold-starts.
+    min_containers=1,
     # A public demo must never turn a traffic spike into a fleet of A100s.
     # Excess requests queue behind this one container.
     max_containers=1,
@@ -240,14 +242,12 @@ class Writer:
     the base weights, and every voice is a ~140MB adapter hot-loaded onto them.
     """
 
-    model: str = modal.parameter(default="Qwen/Qwen2.5-14B")
-
     @modal.enter()
     def start(self):
         from vllm import LLM
 
         self.llm = LLM(
-            model=self.model,
+            model=PUBLIC_DEMO_MODEL,
             enable_lora=True,
             max_lora_rank=LORA_RANK,
             max_model_len=4096,
@@ -319,7 +319,7 @@ def _run_demo_job(item: dict) -> dict:
         raise ValueError("length must be short or medium")
 
     prompt = build_write_prompt(notes, length)
-    results = Writer(model=PUBLIC_DEMO_MODEL).generate.remote(
+    results = Writer().generate.remote(
         adapter_path=f"/voices/{PUBLIC_DEMO_VOICE}",
         prompt=prompt,
         n=2,
@@ -442,11 +442,12 @@ def parse_hosted_generation(item: object) -> dict:
         raise ValueError("request must be an object")
     adapter_path = item.get("adapter_path")
     model = item.get("provider_model", PUBLIC_DEMO_MODEL)
+    shared_voice_path = f"/voices/{PUBLIC_DEMO_VOICE}"
     if (
         not isinstance(adapter_path, str)
-        or not adapter_path.startswith("/voices/model_")
         or ".." in adapter_path
         or len(adapter_path) > 120
+        or not (adapter_path.startswith("/voices/model_") or adapter_path == shared_voice_path)
     ):
         raise ValueError("invalid adapter path")
     if model not in HOSTED_MODELS:
@@ -503,8 +504,8 @@ def parse_hosted_generation(item: object) -> dict:
             text_before = draft[:selection_start]
             text_after = draft[selection_end:]
     profile = item.get("style_profile")
-    if not isinstance(profile, dict):
-        raise ValueError("style profile is required")
+    if profile is not None and not isinstance(profile, dict):
+        raise ValueError("style profile must be an object")
     return {
         "adapter_path": adapter_path,
         "provider_model": model,
@@ -608,7 +609,7 @@ def hosted_generate_job(item: dict) -> dict:
             preceding_text=request["preceding_text"] if request["operation"] == "continue" else "",
         )
     )
-    candidates = Writer(model=request["provider_model"]).generate.remote(
+    candidates = Writer().generate.remote(
         adapter_path=request["adapter_path"],
         prompt=prompt,
         n=8,
@@ -617,7 +618,7 @@ def hosted_generate_job(item: dict) -> dict:
         max_tokens=MAX_TOKENS[request["length"]],
         stop=stop_for(request["length"]),
     )
-    profile = Profile.from_dict(request["style_profile"])
+    raw_profile = request.get("style_profile")
     texts = [
         trim_to_sentence(candidate["text"])
         if candidate["finish_reason"] == "length"
@@ -629,7 +630,11 @@ def hosted_generate_job(item: dict) -> dict:
         raise RuntimeError("the model returned no draft")
     if request["operation"] == "edit_span":
         texts = [f'{request["text_before"]}{text}{request["text_after"]}' for text in texts]
-    ranked = sorted(((text, score(profile, text)) for text in texts), key=lambda pair: -pair[1])
+    if raw_profile:
+        profile = Profile.from_dict(raw_profile)
+        ranked = sorted(((text, score(profile, text)) for text in texts), key=lambda pair: -pair[1])
+    else:
+        ranked = [(text, 0.0) for text in texts]
     return {
         "drafts": [text for text, _value in ranked],
         "style_scores": [round(value, 4) for _text, value in ranked],

@@ -27,11 +27,12 @@ export default function Home() {
 
       <section className="hero shell" id="top">
         <div className="hero-copy">
-          <p className="eyebrow"><span className="live-dot" /> LIVE MODEL · QWEN 2.5 14B + LORA</p>
+          <p className="eyebrow"><span className="live-dot" /> LIVE · A REAL TRAINED VOICE</p>
           <h1>Give it the facts.<br />Get back a voice.</h1>
           <p className="dek">
-            Voiceprint trains an open model on writing you actually wrote. This
-            demo runs one real voice—not a prompt pretending to be a person.
+            Voiceprint learns how you write from your own words, then drafts in
+            your voice. This demo runs one real trained voice — not a prompt
+            pretending to be a person.
           </p>
         </div>
         <div className="hero-stamp" aria-hidden="true">
@@ -77,13 +78,13 @@ export default function Home() {
           <h2 id="how-title">Your prose, compressed.</h2>
         </header>
         <ol className="steps">
-          <li><b>1</b><h3>Bring a corpus</h3><p>Consistent writing you authored—essays, posts, notes, or newsletters.</p></li>
-          <li><b>2</b><h3>Train the adapter</h3><p>A small LoRA learns the recurring choices in your prose on your Modal account.</p></li>
-          <li><b>3</b><h3>Write from facts</h3><p>Give it notes, not a costume prompt. It returns candidate drafts and ranks the match.</p></li>
+          <li><b>1</b><h3>Bring your writing</h3><p>A few pages you actually wrote — essays, posts, emails, or newsletters.</p></li>
+          <li><b>2</b><h3>Train your voice</h3><p>Voiceprint learns the patterns in how you write — word choice, rhythm, and structure.</p></li>
+          <li><b>3</b><h3>Write from facts</h3><p>Give it the points to make. It drafts in your voice, and you edit from there.</p></li>
         </ol>
         <div className="mode-note">
-          <p><strong>RAW MODE</strong> preserves the adapter output and its measured voice, but may contain errors.</p>
-          <p><strong>EDITED MODE</strong> fixes facts and grammar only. Any AI editing can change detector results, so score the exact final text.</p>
+          <p><strong>YOUR WORDS IN, YOUR VOICE OUT.</strong> It writes from the facts you give it, in the style it learned from you.</p>
+          <p><strong>YOU STAY IN CONTROL.</strong> Every draft is yours to edit before it goes out.</p>
         </div>
       </section>
 

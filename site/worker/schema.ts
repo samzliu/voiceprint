@@ -21,6 +21,10 @@ export const APP_SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_webhooks_owner ON webhook_endpoints(owner_id)`,
   `CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, endpoint_id TEXT NOT NULL, event_type TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT, created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, next_attempt_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)`,
+  `CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_id)`,
+  `CREATE TABLE IF NOT EXISTS login_tokens (token_hash TEXT PRIMARY KEY, email TEXT NOT NULL, expires_at TEXT NOT NULL, consumed_at TEXT, created_at TEXT NOT NULL)`,
 ];
 
 export async function ensureAppSchema(db: D1Database): Promise<void> {

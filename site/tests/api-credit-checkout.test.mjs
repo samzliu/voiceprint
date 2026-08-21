@@ -117,24 +117,15 @@ async function sendWebhook(event, secret = "test_webhook_secret") {
   }), { ...env, STRIPE_WEBHOOK_SECRET: secret });
 }
 
-test("development checkout grants only the advertised credit increments", async () => {
+test("development checkout grants a flat top-up in dev mode", async () => {
   const startingBalance = await balance();
-  for (const [packs, credits] of [[1, 20], [2, 40], [5, 100]]) {
-    const response = await post("/v1/checkout/credits", { packs });
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { granted: true, generation_credits: credits });
-  }
-  assert.equal(await balance(), startingBalance + 160);
-
-  for (const packs of [0, 3, 6, -1, "not-a-pack"]) {
-    const response = await post("/v1/checkout/credits", { packs });
-    assert.equal(response.status, 400);
-    assert.equal((await response.json()).error.code, "invalid_credit_pack");
-  }
-  assert.equal(await balance(), startingBalance + 160);
+  const response = await post("/v1/checkout/credits", {});
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { granted: true, amount_cents: 1000 });
+  assert.equal(await balance(), startingBalance + 1000);
 });
 
-test("Stripe checkout uses pack quantity and signed server metadata", async () => {
+test("Stripe credit checkout uses a sliding-scale price with quantity 1", async () => {
   const originalFetch = globalThis.fetch;
   let submitted;
   globalThis.fetch = async (_url, options) => {
@@ -142,48 +133,48 @@ test("Stripe checkout uses pack quantity and signed server metadata", async () =
     return Response.json({ url: "https://checkout.stripe.test/session" });
   };
   try {
-    const response = await post("/v1/checkout/credits", { packs: 5 }, {
+    const response = await post("/v1/checkout/credits", {}, {
       ...env,
       STRIPE_SECRET_KEY: "sk_test",
       STRIPE_CREDIT_PRICE_ID: "price_credits",
     });
     assert.equal(response.status, 200);
     assert.equal((await response.json()).url, "https://checkout.stripe.test/session");
-    assert.equal(submitted.get("line_items[0][quantity]"), "5");
+    assert.equal(submitted.get("line_items[0][quantity]"), "1");
     assert.equal(submitted.get("metadata[kind]"), "credits");
-    assert.equal(submitted.get("metadata[credits]"), "100");
+    assert.equal(submitted.get("metadata[credits]"), null);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("webhooks grant paid credits exactly once and ignore unpaid sessions", async () => {
+test("webhooks grant the paid amount once and ignore unpaid sessions", async () => {
   const startingBalance = await balance();
   const paid = {
     type: "checkout.session.completed",
-    data: { object: { id: "cs_paid_once", payment_status: "paid", metadata: {
-      owner_id: "dev_voiceprint_user", kind: "credits", credits: "40",
+    data: { object: { id: "cs_paid_once", payment_status: "paid", amount_total: 4000, metadata: {
+      owner_id: "dev_voiceprint_user", kind: "credits",
     } } },
   };
   assert.equal((await sendWebhook(paid)).status, 200);
   assert.equal((await sendWebhook(paid)).status, 200);
-  assert.equal(await balance(), startingBalance + 40);
+  assert.equal(await balance(), startingBalance + 4000);
 
   const unpaid = {
     type: "checkout.session.completed",
-    data: { object: { id: "cs_unpaid", payment_status: "unpaid", metadata: {
-      owner_id: "dev_voiceprint_user", kind: "credits", credits: "100",
+    data: { object: { id: "cs_unpaid", payment_status: "unpaid", amount_total: 10000, metadata: {
+      owner_id: "dev_voiceprint_user", kind: "credits",
     } } },
   };
   assert.equal((await sendWebhook(unpaid)).status, 200);
-  assert.equal(await balance(), startingBalance + 40);
+  assert.equal(await balance(), startingBalance + 4000);
 
   const delayed = {
     type: "checkout.session.async_payment_succeeded",
-    data: { object: { id: "cs_delayed", payment_status: "paid", metadata: {
-      owner_id: "dev_voiceprint_user", kind: "credits", credits: "20",
+    data: { object: { id: "cs_delayed", payment_status: "paid", amount_total: 2000, metadata: {
+      owner_id: "dev_voiceprint_user", kind: "credits",
     } } },
   };
   assert.equal((await sendWebhook(delayed)).status, 200);
-  assert.equal(await balance(), startingBalance + 60);
+  assert.equal(await balance(), startingBalance + 6000);
 });

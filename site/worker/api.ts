@@ -17,7 +17,7 @@ export interface AppEnv {
   HOSTED_TRAIN_RESULT_ENDPOINT?: string;
   HOSTED_GENERATE_ENDPOINT?: string;
   HOSTED_GENERATE_RESULT_ENDPOINT?: string;
-  RESEND_API_KEY?: string;
+  POSTMARK_SERVER_TOKEN?: string;
   EMAIL_FROM?: string;
   AI_GATEWAY_API_KEY?: string;
   ROUTER_MODEL?: string;
@@ -33,7 +33,25 @@ const JSON_HEADERS = { "cache-control": "no-store", "content-type": "application
 const MAX_ITEM_BYTES = 2_000_000;
 const MAX_CORPUS_BYTES = 20_000_000;
 const TRAINING_PRICE_CENTS = 2_000;
-const CREDIT_PACK_SIZE = 20;
+// --- Token-metered generation billing (balance is stored in cents) ---
+const TOKENS_PER_DOLLAR = 2_000;            // $1 ~= 2,000 output tokens ~= ~3 pages
+const CENTS_PER_DOLLAR = 100;
+const SIGNUP_GRANT_CENTS = 100;             // $1 free on signup
+const TRAINING_BUNDLE_CENTS = 100;          // +$1 generation bundled with training
+const MIN_GENERATION_CENTS = 1;             // need at least 1c of balance to start
+const MAX_TOPUP_CENTS = 100_000;            // $1,000 sliding-scale ceiling (safety)
+const SHARED_MODEL_ID = "shared";
+const SHARED_MODEL_NAME = "Voice of the Founder";
+const SHARED_ADAPTER_PATH = "/voices/sam3";
+const SHARED_PROVIDER_MODEL = "Qwen/Qwen2.5-14B";
+
+// Cost of a generation, in cents, computed from the produced text. Metering
+// happens on the FINAL draft at completion, so users pay only for what the
+// adapter actually wrote.
+function generationCents(text: string): number {
+  const estTokens = Math.ceil((text || "").length / 4);
+  return Math.max(1, Math.ceil(estTokens / (TOKENS_PER_DOLLAR / CENTS_PER_DOLLAR)));
+}
 
 function response(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...headers } });
@@ -68,13 +86,31 @@ async function parseJson(request: Request, maxBytes = MAX_ITEM_BYTES): Promise<J
   return body as JsonObject;
 }
 
-async function authenticate(request: Request, env: AppEnv, scopes: string[] = []): Promise<User | null> {
-  const platformId = request.headers.get("oai-authenticated-user-id");
-  const platformEmail = request.headers.get("oai-authenticated-user-email");
-  if (platformId && platformEmail) {
-    return { id: platformId, email: platformEmail, name: null, scopes: ["*"] };
-  }
+const SESSION_COOKIE = "vp_session";
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const LOGIN_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+function readCookie(request: Request, name: string): string | null {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(/;\s*/)) {
+    const eq = part.indexOf("=");
+    if (eq > 0 && part.slice(0, eq) === name) return decodeURIComponent(part.slice(eq + 1));
+  }
+  return null;
+}
+
+function sessionCookie(value: string, maxAgeSeconds: number, secure: boolean): string {
+  const flags = `HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+  return `${SESSION_COOKIE}=${value}; ${flags}${secure ? "; Secure" : ""}`;
+}
+
+function clearCookie(secure: boolean): string {
+  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure ? "; Secure" : ""}`;
+}
+
+async function authenticate(request: Request, env: AppEnv, scopes: string[] = []): Promise<User | null> {
+  // Programmatic access: personal API keys (Bearer vp_...).
   const authorization = request.headers.get("authorization");
   if (authorization) {
     if (!authorization.startsWith("Bearer vp_")) return null;
@@ -91,6 +127,19 @@ async function authenticate(request: Request, env: AppEnv, scopes: string[] = []
       .bind(key.owner_id).first<{ email: string; name: string | null }>();
     if (!account) return null;
     return { id: key.owner_id, email: account.email, name: account.name, scopes: granted };
+  }
+
+  // Interactive access: signed browser session (magic-link email auth).
+  const sessionId = readCookie(request, SESSION_COOKIE);
+  if (sessionId) {
+    const session = await env.DB.prepare(
+      "SELECT owner_id FROM sessions WHERE id = ? AND expires_at > ?",
+    ).bind(sessionId, now()).first<{ owner_id: string }>();
+    if (session) {
+      const account = await env.DB.prepare("SELECT email, name FROM users WHERE id = ?")
+        .bind(session.owner_id).first<{ email: string; name: string | null }>();
+      if (account) return { id: session.owner_id, email: account.email, name: account.name, scopes: ["*"] };
+    }
   }
 
   if (env.DEV_AUTH === "1") {
@@ -166,7 +215,8 @@ async function handleProfile(request: Request, env: AppEnv, user: User): Promise
     const profile = await env.DB.prepare(
       "SELECT id, email, name, writing_goals, sample_notes, created_at FROM users WHERE id = ?",
     ).bind(user.id).first();
-    return response({ user: profile, credits: await balance(env, user.id) });
+    const balanceCents = await balance(env, user.id);
+    return response({ user: profile, credits: balanceCents, balance_cents: balanceCents });
   }
   if (request.method === "PUT") {
     const body = await parseJson(request, 20_000);
@@ -319,7 +369,12 @@ async function handleModels(request: Request, env: AppEnv, user: User): Promise<
   const models = await env.DB.prepare(
     "SELECT id, revision_id, name, status, provider, provider_model, trained_at, created_at, updated_at FROM models WHERE owner_id = ? AND status != 'deleted' ORDER BY updated_at DESC",
   ).bind(user.id).all();
-  return response({ data: models.results });
+  const sharedModel = {
+    id: SHARED_MODEL_ID, revision_id: null, name: SHARED_MODEL_NAME, status: "ready",
+    provider: "modal", provider_model: SHARED_PROVIDER_MODEL, trained_at: null,
+    created_at: null, updated_at: "9999-12-31T00:00:00Z", shared: true,
+  };
+  return response({ data: [sharedModel, ...models.results] });
 }
 
 async function handleModel(request: Request, env: AppEnv, user: User, modelId: string): Promise<Response> {
@@ -346,6 +401,18 @@ async function callModal(url: string, env: AppEnv, body: JsonObject): Promise<Re
   });
 }
 
+// Parse a provider response defensively. A non-JSON body (a proxy error page, a
+// plaintext validation error) becomes { detail } instead of throwing, so a bad
+// upstream response returns a clean 502 rather than crashing the Worker.
+async function readJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return { detail: text.slice(0, 300) || `Provider returned ${response.status}.` } as T;
+  }
+}
+
 async function handleCheckout(request: Request, env: AppEnv, user: User): Promise<Response> {
   if (request.method !== "POST") return failure("method_not_allowed", "Method not allowed.", 405);
   if (env.DEV_AUTH === "1" && (!env.STRIPE_SECRET_KEY || !env.STRIPE_TRAINING_PRICE_ID)) {
@@ -356,10 +423,10 @@ async function handleCheckout(request: Request, env: AppEnv, user: User): Promis
         "INSERT INTO entitlements (id, owner_id, kind, status, created_at, updated_at) VALUES (?, ?, 'training', 'available', ?, ?)",
       ).bind(entitlementId, user.id, timestamp, timestamp),
       env.DB.prepare(
-        "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, 20, 'training_bundle', ?, ?)",
-      ).bind(id("credit"), user.id, entitlementId, timestamp),
+        "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, ?, 'training_bundle', ?, ?)",
+      ).bind(id("credit"), user.id, TRAINING_BUNDLE_CENTS, entitlementId, timestamp),
     ]);
-    return response({ granted: true, entitlement_id: entitlementId, generation_credits: 20 });
+    return response({ granted: true, entitlement_id: entitlementId, generation_bundle_cents: TRAINING_BUNDLE_CENTS });
   }
   if (!env.STRIPE_SECRET_KEY || !env.STRIPE_TRAINING_PRICE_ID) {
     return failure("billing_unavailable", "Training checkout is not configured yet.", 503);
@@ -387,31 +454,28 @@ async function handleCheckout(request: Request, env: AppEnv, user: User): Promis
 
 async function handleCreditCheckout(request: Request, env: AppEnv, user: User): Promise<Response> {
   if (request.method !== "POST") return failure("method_not_allowed", "Method not allowed.", 405);
-  const body = await parseJson(request, 10_000);
-  const packs = Number(body.packs);
-  if (![1, 2, 5].includes(packs)) return failure("invalid_credit_pack", "Choose 20, 40, or 100 credits.", 400);
-  const credits = packs * CREDIT_PACK_SIZE;
   if (env.DEV_AUTH === "1" && (!env.STRIPE_SECRET_KEY || !env.STRIPE_CREDIT_PRICE_ID)) {
     const referenceId = id("credit_purchase");
     await env.DB.prepare(
       "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, ?, 'credit_purchase', ?, ?)",
-    ).bind(id("credit"), user.id, credits, referenceId, now()).run();
-    return response({ granted: true, generation_credits: credits });
+    ).bind(id("credit"), user.id, 1_000, referenceId, now()).run();
+    return response({ granted: true, amount_cents: 1_000 });
   }
   if (!env.STRIPE_SECRET_KEY || !env.STRIPE_CREDIT_PRICE_ID) {
     return failure("billing_unavailable", "Generation-credit checkout is not configured yet.", 503);
   }
   const origin = new URL(request.url).origin;
+  // Sliding-scale price (customer chooses $10-$100 at checkout): quantity is 1
+  // and the granted balance is derived from amount_total in the webhook.
   const form = new URLSearchParams({
     mode: "payment",
     "line_items[0][price]": env.STRIPE_CREDIT_PRICE_ID,
-    "line_items[0][quantity]": String(packs),
+    "line_items[0][quantity]": "1",
     success_url: `${origin}/beta?checkout=credits-success`,
     cancel_url: `${origin}/beta?checkout=cancelled`,
     client_reference_id: user.id,
     "metadata[owner_id]": user.id,
     "metadata[kind]": "credits",
-    "metadata[credits]": String(credits),
   });
   const stripe = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
@@ -465,7 +529,7 @@ async function handleTraining(request: Request, env: AppEnv, user: User): Promis
       job_id: jobId,
       ...(callbackUrl ? { callback_url: callbackUrl, callback_secret: env.PROVIDER_CALLBACK_SECRET } : {}),
     });
-    const result = await upstream.json() as { call_id?: string; detail?: string };
+    const result = await readJson<{ call_id?: string; detail?: string }>(upstream);
     if (!upstream.ok || !result.call_id) return failure("training_unavailable", result.detail || "Training could not be queued.", 502);
     providerJobId = result.call_id;
   } else if (env.DEV_AUTH === "1") {
@@ -521,11 +585,13 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
     || Number(selectionEnd) > text.length
     || !instruction
   )) return failure("invalid_generation", "Edit span requires text, a non-empty instruction, and valid selection_start/selection_end offsets.", 400);
-  const model = await env.DB.prepare(
-    "SELECT id, adapter_path, provider_model, style_profile FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
-  ).bind(modelId, user.id).first<{ id: string; adapter_path: string; provider_model: string; style_profile: string | null }>();
+  const model = modelId === SHARED_MODEL_ID
+    ? { id: SHARED_MODEL_ID, adapter_path: SHARED_ADAPTER_PATH, provider_model: SHARED_PROVIDER_MODEL, style_profile: null as string | null }
+    : await env.DB.prepare(
+        "SELECT id, adapter_path, provider_model, style_profile FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
+      ).bind(modelId, user.id).first<{ id: string; adapter_path: string; provider_model: string; style_profile: string | null }>();
   if (!model) return failure("model_not_ready", "Choose a ready model.", 409);
-  if (await balance(env, user.id) < 1) return failure("credits_required", "Add generation credits before writing.", 402);
+  if (await balance(env, user.id) < MIN_GENERATION_CENTS) return failure("credits_required", "Add funds before writing.", 402);
 
   const jobId = id("job");
   const timestamp = now();
@@ -556,7 +622,7 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
       provider_model: model.provider_model,
       style_profile: model.style_profile ? JSON.parse(model.style_profile) : null,
     });
-    const data = await upstream.json() as { call_id?: string; detail?: string };
+    const data = await readJson<{ call_id?: string; detail?: string }>(upstream);
     if (!upstream.ok || !data.call_id) return failure("generation_unavailable", data.detail || "Generation could not be queued.", 502);
     providerJobId = data.call_id;
   } else if (env.DEV_AUTH === "1") {
@@ -579,21 +645,25 @@ async function handleGeneration(request: Request, env: AppEnv, user: User): Prom
     return failure("generation_unavailable", "The generation provider is not configured.", 503);
   }
 
-  await env.DB.batch([
+  const creationStatements = [
     env.DB.prepare(
       "INSERT INTO jobs (id, owner_id, kind, status, resource_id, provider_job_id, request, result, idempotency_key, created_at, updated_at) VALUES (?, ?, 'generation', ?, ?, ?, ?, ?, ?, ?, ?)",
     ).bind(jobId, user.id, result ? "completed" : "queued", modelId, providerJobId, JSON.stringify({ ...body, replacement_draft: undefined, operation, mode }), result ? JSON.stringify(result) : null, idempotencyKey, timestamp, timestamp),
-    env.DB.prepare(
-      "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, -1, 'generation', ?, ?)",
-    ).bind(id("credit"), user.id, jobId, timestamp),
-  ]);
+  ];
+  if (result) {
+    const draft0 = Array.isArray(result.drafts) && typeof result.drafts[0] === "string" ? result.drafts[0] : "";
+    creationStatements.push(env.DB.prepare(
+      "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, ?, 'generation', ?, ?)",
+    ).bind(id("credit"), user.id, -generationCents(draft0), jobId, timestamp));
+  }
+  await env.DB.batch(creationStatements);
   return response({ id: jobId, status: result ? "completed" : "queued", ...(result ? { result } : {}) }, result ? 200 : 202, { location: `/v1/jobs/${jobId}` });
 }
 
 async function handleAssistant(request: Request, env: AppEnv, user: User): Promise<Response> {
   if (request.method !== "POST") return failure("method_not_allowed", "Method not allowed.", 405);
   try {
-    return response(await runWritingAssistant(env, user, await parseJson(request, 20_000)));
+    return response(await runWritingAssistant(env, user, await parseJson(request, 200_000)));
   } catch (error) {
     const message = error instanceof Error ? error.message : "The assistant could not prepare that request.";
     const status = message.includes("not configured") ? 503 : 400;
@@ -636,34 +706,24 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
   if (!resultEndpoint || !job.provider_job_id) return response({ ...job }, 202);
   const upstream = await callModal(resultEndpoint, env, { call_id: job.provider_job_id });
   if (upstream.status === 202) return response({ ...job, status: "running" }, 202);
-  const result = await upstream.json() as JsonObject & { detail?: string; adapter_path?: string; profile?: JsonObject };
+  const result = await readJson<JsonObject & { detail?: string; adapter_path?: string; profile?: JsonObject }>(upstream);
   if (!upstream.ok) {
     const timestamp = now();
     const statements = [
       env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
         .bind(result.detail || "Provider job failed.", timestamp, jobId, user.id),
     ];
-    if (job.kind === "generation") {
-      statements.push(env.DB.prepare(
-        "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, 1, 'generation_refund', ?, ?)",
-      ).bind(id("credit"), user.id, jobId, timestamp));
-    }
     await env.DB.batch(statements);
-    return failure("job_failed", result.detail || "The job failed and any credit was restored.", 502);
+    return failure("job_failed", result.detail || "The job failed. You were not charged.", 502);
   }
   const timestamp = now();
   if (job.kind === "generation") {
     const generationRequest = job.request ? JSON.parse(String(job.request)) as JsonObject : {};
     const drafts = Array.isArray(result.drafts) ? result.drafts.filter((item): item is string => typeof item === "string") : [];
     if (result.final_writer !== "voiceprint" || result.finalized_by_adapter !== true) {
-      await env.DB.batch([
-        env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
-          .bind("The provider did not attest that Voiceprint wrote the final output.", timestamp, jobId, user.id),
-        env.DB.prepare(
-          "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, 1, 'generation_refund', ?, ?)",
-        ).bind(id("credit"), user.id, jobId, timestamp),
-      ]);
-      return failure("final_writer_unverified", "Generation was rejected because Voiceprint was not the verified final writer. The credit was restored.", 502);
+      await env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+        .bind("The provider did not attest that Voiceprint wrote the final output.", timestamp, jobId, user.id).run();
+      return failure("final_writer_unverified", "Generation was rejected because Voiceprint was not the verified final writer. You were not charged.", 502);
     }
     const requestedOperation = typeof generationRequest.operation === "string" ? generationRequest.operation : "write";
     const needsFinalPass = generationRequest.mode === "edited"
@@ -676,9 +736,11 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
       const rawDraft = drafts[0];
       try {
         if (!env.HOSTED_GENERATE_ENDPOINT) throw new Error("The Voiceprint finalization endpoint is not configured.");
-        const model = await env.DB.prepare(
-          "SELECT adapter_path, provider_model, style_profile FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
-        ).bind(String(job.resource_id), user.id).first<{ adapter_path: string; provider_model: string; style_profile: string | null }>();
+        const model = String(job.resource_id) === SHARED_MODEL_ID
+          ? { adapter_path: SHARED_ADAPTER_PATH, provider_model: SHARED_PROVIDER_MODEL, style_profile: null as string | null }
+          : await env.DB.prepare(
+              "SELECT adapter_path, provider_model, style_profile FROM models WHERE id = ? AND owner_id = ? AND status = 'ready'",
+            ).bind(String(job.resource_id), user.id).first<{ adapter_path: string; provider_model: string; style_profile: string | null }>();
         if (!model) throw new Error("The Voiceprint model is no longer ready.");
         const correctionDraft = await planLightEdit(env, user, rawDraft, corrections);
         const upstream = await callModal(env.HOSTED_GENERATE_ENDPOINT, env, {
@@ -691,7 +753,7 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
           provider_model: model.provider_model,
           style_profile: model.style_profile ? JSON.parse(model.style_profile) : null,
         });
-        const queued = await upstream.json() as { call_id?: string; detail?: string };
+        const queued = await readJson<{ call_id?: string; detail?: string }>(upstream);
         if (!upstream.ok || !queued.call_id) throw new Error(queued.detail || "Voiceprint finalization could not be queued.");
         const nextRequest = {
           ...generationRequest,
@@ -703,14 +765,9 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
         return response({ ...job, status: "queued", finalization: "voiceprint" }, 202);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Voiceprint finalization failed.";
-        await env.DB.batch([
-          env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
-            .bind(message, timestamp, jobId, user.id),
-          env.DB.prepare(
-            "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, 1, 'generation_refund', ?, ?)",
-          ).bind(id("credit"), user.id, jobId, timestamp),
-        ]);
-        return failure("finalization_failed", `${message} The credit was restored.`, 502);
+        await env.DB.prepare("UPDATE jobs SET status = 'failed', error = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+          .bind(message, timestamp, jobId, user.id).run();
+        return failure("finalization_failed", `${message} You were not charged.`, 502);
       }
     }
     if (generationRequest.finalization_stage === "voiceprint") {
@@ -731,25 +788,49 @@ async function handleJob(request: Request, env: AppEnv, user: User, jobId: strin
       await sendTrainingEmail(env, user.email, String(job.resource_id), new URL(request.url).origin);
     }
   } else {
-    await env.DB.prepare("UPDATE jobs SET status = 'completed', result = ?, updated_at = ? WHERE id = ? AND owner_id = ?")
+    const claimed = await env.DB.prepare("UPDATE jobs SET status = 'completed', result = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND status != 'completed'")
       .bind(JSON.stringify(result), timestamp, jobId, user.id).run();
+    if (claimed.meta.changes > 0 && job.kind === "generation") {
+      const finalDrafts = Array.isArray(result.drafts) ? result.drafts.filter((item): item is string => typeof item === "string") : [];
+      await env.DB.prepare(
+        "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, ?, 'generation', ?, ?)",
+      ).bind(id("credit"), user.id, -generationCents(finalDrafts[0] || ""), jobId, timestamp).run();
+    }
   }
   return response({ ...job, status: "completed", result });
 }
 
-async function sendTrainingEmail(env: AppEnv, email: string, modelId: string, requestOrigin: string): Promise<void> {
-  if (!env.RESEND_API_KEY || !env.EMAIL_FROM) return;
-  const appUrl = (env.APP_URL || requestOrigin).replace(/\/$/, "");
-  await fetch("https://api.resend.com/emails", {
+function emailConfigured(env: AppEnv): boolean {
+  return Boolean(env.POSTMARK_SERVER_TOKEN && env.EMAIL_FROM);
+}
+
+async function sendEmail(env: AppEnv, to: string, subject: string, html: string): Promise<void> {
+  if (!emailConfigured(env)) return;
+  await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
-    headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+    headers: {
+      "X-Postmark-Server-Token": env.POSTMARK_SERVER_TOKEN as string,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
     body: JSON.stringify({
-      from: env.EMAIL_FROM,
-      to: [email],
-      subject: "Your Voiceprint model is ready",
-      html: `<p>Your model is ready to write.</p><p><a href="${appUrl}/beta?model=${encodeURIComponent(modelId)}">Open Voiceprint</a></p>`,
+      From: env.EMAIL_FROM,
+      To: to,
+      Subject: subject,
+      HtmlBody: html,
+      MessageStream: "outbound",
     }),
   });
+}
+
+async function sendTrainingEmail(env: AppEnv, email: string, modelId: string, requestOrigin: string): Promise<void> {
+  const appUrl = (env.APP_URL || requestOrigin).replace(/\/$/, "");
+  await sendEmail(
+    env,
+    email,
+    "Your Voiceprint model is ready",
+    `<p>Your model is ready to write.</p><p><a href="${appUrl}/beta?model=${encodeURIComponent(modelId)}">Open Voiceprint</a></p>`,
+  );
 }
 
 async function handleTrainingCallback(request: Request, env: AppEnv): Promise<Response> {
@@ -800,7 +881,7 @@ async function handleStripeWebhook(request: Request, env: AppEnv): Promise<Respo
   if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return failure("invalid_signature", "Invalid webhook signature.", 400);
   const event = JSON.parse(raw) as {
     type?: string;
-    data?: { object?: { id?: string; payment_status?: string; metadata?: Record<string, string> } };
+    data?: { object?: { id?: string; payment_status?: string; amount_total?: number; metadata?: Record<string, string> } };
   };
   if (["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(event.type || "")) {
     const session = event.data?.object;
@@ -813,15 +894,15 @@ async function handleStripeWebhook(request: Request, env: AppEnv): Promise<Respo
             "INSERT INTO entitlements (id, owner_id, kind, status, stripe_session_id, created_at, updated_at) SELECT ?, ?, 'training', 'available', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM entitlements WHERE stripe_session_id = ?)",
           ).bind(id("entitlement"), ownerId, session.id, timestampNow, timestampNow, session.id),
           env.DB.prepare(
-            "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) SELECT ?, ?, 20, 'training_bundle', ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE owner_id = ? AND kind = 'training_bundle' AND reference_id = ?)",
+            "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) SELECT ?, ?, 100, 'training_bundle', ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE owner_id = ? AND kind = 'training_bundle' AND reference_id = ?)",
           ).bind(id("credit"), ownerId, session.id, timestampNow, ownerId, session.id),
         ]);
       } else if (session.metadata?.kind === "credits") {
-        const credits = Number(session.metadata.credits);
-        if ([20, 40, 100].includes(credits)) {
+        const cents = Math.min(MAX_TOPUP_CENTS, Math.max(0, Math.round(Number(session.amount_total) || 0)));
+        if (cents > 0) {
           await env.DB.prepare(
             "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) SELECT ?, ?, ?, 'credit_purchase', ?, ? WHERE NOT EXISTS (SELECT 1 FROM credit_ledger WHERE owner_id = ? AND kind = 'credit_purchase' AND reference_id = ?)",
-          ).bind(id("credit"), ownerId, credits, session.id, timestampNow, ownerId, session.id).run();
+          ).bind(id("credit"), ownerId, cents, session.id, timestampNow, ownerId, session.id).run();
         }
       }
     }
@@ -870,6 +951,102 @@ async function handleDevSeed(request: Request, env: AppEnv, user: User): Promise
   return response({ seeded: true, credits: await balance(env, user.id) });
 }
 
+function isValidEmail(email: string): boolean {
+  return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+async function findOrCreateUser(env: AppEnv, email: string): Promise<string> {
+  const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+    .bind(email).first<{ id: string }>();
+  if (existing) return existing.id;
+  const timestamp = now();
+  await env.DB.prepare(
+    "INSERT INTO users (id, email, name, created_at, updated_at) VALUES (?, ?, NULL, ?, ?) ON CONFLICT(email) DO NOTHING",
+  ).bind(id("user"), email, timestamp, timestamp).run();
+  const row = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+    .bind(email).first<{ id: string }>();
+  if (!row) throw new Error("user_create_failed");
+  // One-time signup grant, backfilled for any account that never received one.
+  const grant = await env.DB.prepare(
+    "SELECT 1 AS ok FROM credit_ledger WHERE owner_id = ? AND kind = 'signup_grant' LIMIT 1",
+  ).bind(row.id).first<{ ok: number }>();
+  if (!grant) {
+    await env.DB.prepare(
+      "INSERT INTO credit_ledger (id, owner_id, delta, kind, reference_id, created_at) VALUES (?, ?, ?, 'signup_grant', ?, ?)",
+    ).bind(id("credit"), row.id, SIGNUP_GRANT_CENTS, row.id, timestamp).run();
+  }
+  return row.id;
+}
+
+async function handleAuthRequest(request: Request, env: AppEnv): Promise<Response> {
+  const body = await parseJson(request, 2_000).catch(() => null);
+  const email = body && typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!isValidEmail(email)) return failure("invalid_email", "Enter a valid email address.", 400);
+
+  const token = `vpl_${crypto.randomUUID().replaceAll("-", "")}${crypto.randomUUID().replaceAll("-", "")}`;
+  const tokenHash = await digest(token);
+  const expiresAt = new Date(Date.now() + LOGIN_TOKEN_TTL_MS).toISOString();
+  await env.DB.prepare(
+    "INSERT INTO login_tokens (token_hash, email, expires_at, created_at) VALUES (?, ?, ?, ?)",
+  ).bind(tokenHash, email, expiresAt, now()).run();
+
+  const appUrl = (env.APP_URL || new URL(request.url).origin).replace(/\/$/, "");
+  const link = `${appUrl}/v1/auth/callback?token=${token}`;
+
+  await sendEmail(
+    env,
+    email,
+    "Your Voiceprint sign-in link",
+    `<p>Click to sign in to Voiceprint. This link expires in 15 minutes.</p><p><a href="${link}">Sign in to Voiceprint</a></p><p>If you did not request this, ignore this email.</p>`,
+  );
+
+  // When email delivery is not configured (local/dev), return the link so the
+  // flow is still testable. Never leak it once Postmark is wired up.
+  const devLink = !emailConfigured(env) || env.DEV_AUTH === "1";
+  return response({ sent: true, ...(devLink ? { dev_link: link } : {}) });
+}
+
+async function handleAuthCallback(request: Request, env: AppEnv): Promise<Response> {
+  const url = new URL(request.url);
+  const appUrl = (env.APP_URL || url.origin).replace(/\/$/, "");
+  const token = url.searchParams.get("token") || "";
+  if (!token) return Response.redirect(`${appUrl}/beta?auth=invalid`, 302);
+
+  const tokenHash = await digest(token);
+  const record = await env.DB.prepare(
+    "SELECT email, expires_at, consumed_at FROM login_tokens WHERE token_hash = ?",
+  ).bind(tokenHash).first<{ email: string; expires_at: string; consumed_at: string | null }>();
+  if (!record || record.consumed_at || record.expires_at <= now()) {
+    return Response.redirect(`${appUrl}/beta?auth=expired`, 302);
+  }
+  await env.DB.prepare("UPDATE login_tokens SET consumed_at = ? WHERE token_hash = ?")
+    .bind(now(), tokenHash).run();
+
+  const ownerId = await findOrCreateUser(env, record.email);
+  const sessionId = id("session");
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SECONDS * 1000).toISOString();
+  await env.DB.prepare(
+    "INSERT INTO sessions (id, owner_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+  ).bind(sessionId, ownerId, expiresAt, now()).run();
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: `${appUrl}/beta`,
+      "set-cookie": sessionCookie(sessionId, SESSION_TTL_SECONDS, url.protocol === "https:"),
+    },
+  });
+}
+
+async function handleAuthLogout(request: Request, env: AppEnv): Promise<Response> {
+  const sessionId = readCookie(request, SESSION_COOKIE);
+  if (sessionId) await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId).run();
+  return new Response(null, {
+    status: 204,
+    headers: { "set-cookie": clearCookie(new URL(request.url).protocol === "https:") },
+  });
+}
+
 export async function handleApi(request: Request, env: AppEnv): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/v1/")) return null;
@@ -882,6 +1059,10 @@ export async function handleApi(request: Request, env: AppEnv): Promise<Response
   if (url.pathname === "/v1/provider/training-complete") {
     return handleTrainingCallback(request, env);
   }
+
+  if (url.pathname === "/v1/auth/request" && request.method === "POST") return handleAuthRequest(request, env);
+  if (url.pathname === "/v1/auth/callback" && request.method === "GET") return handleAuthCallback(request, env);
+  if (url.pathname === "/v1/auth/logout" && request.method === "POST") return handleAuthLogout(request, env);
 
   const authenticated = await requireUser(request, env, requiredScopes(url.pathname, request.method));
   if (isResponse(authenticated)) return authenticated;

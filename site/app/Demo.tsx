@@ -125,7 +125,7 @@ export function Demo({ initialBrief }: { initialBrief: string }) {
         {status === "loading" && (
           <div className="draft-loading">
             <span className="loading-line" /><span className="loading-line short" />
-            <p>Loading the base model and applying the trained adapter…</p>
+            <p>Writing in the trained voice…</p>
           </div>
         )}
         {status === "error" && (
