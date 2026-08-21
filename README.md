@@ -20,6 +20,8 @@ style from your prose while an agent or a set of notes supplies the facts and st
 If Voiceprint is useful to you, [star the repository](https://github.com/samzliu/voiceprint) so
 other writers and developers can find it.
 
+Try it out [here](https://voiceprint-demo.voiceprint-demo.workers.dev). Note it may take a few minutes for to warm up. 
+
 ## Why Voiceprint
 
 - **Your voice, not AI slop.** A LoRA adapter learns from prose you already wrote. In one run, Pangram 4.0 classified all ~900 words of an AI generated draft from an adapter trained on a ~9k word corpus as human-written.
