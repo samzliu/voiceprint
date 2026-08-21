@@ -18,7 +18,7 @@ CACHE_VOLUME = "voiceprint-cache"
 
 PREP_MODEL = "Qwen/Qwen2.5-7B-Instruct"
 PUBLIC_DEMO_MODEL = "Qwen/Qwen2.5-14B"
-PUBLIC_DEMO_VOICE = "sam3"
+PUBLIC_DEMO_VOICE = "default"
 
 # Fits every supported base model in bf16 with room for a KV cache. If you ever
 # want a base too big for 80GB, change this and redeploy.

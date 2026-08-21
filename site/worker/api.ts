@@ -42,7 +42,7 @@ const MIN_GENERATION_CENTS = 1;             // need at least 1c of balance to st
 const MAX_TOPUP_CENTS = 100_000;            // $1,000 sliding-scale ceiling (safety)
 const SHARED_MODEL_ID = "shared";
 const SHARED_MODEL_NAME = "Voiceprint default";
-const SHARED_ADAPTER_PATH = "/voices/sam3";
+const SHARED_ADAPTER_PATH = "/voices/default";
 const SHARED_PROVIDER_MODEL = "Qwen/Qwen2.5-14B";
 
 // Cost of a generation, in cents, computed from the produced text. Metering
