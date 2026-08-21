@@ -229,8 +229,8 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     volumes=VOLUMES,
     scaledown_window=600,
     timeout=900,
-    # Keep one container always warm so the default/shared voice never cold-starts.
-    min_containers=1,
+    # Warm-on-demand: a container stays warm for 10 min after each request, so
+    # only the first request after a lull cold-starts. No 24/7 GPU cost.
     # A public demo must never turn a traffic spike into a fleet of A100s.
     # Excess requests queue behind this one container.
     max_containers=1,

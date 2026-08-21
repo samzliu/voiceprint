@@ -151,6 +151,14 @@ export function BetaWorkspace() {
     window.location.href = "/";
   }
 
+  async function buyCredits() {
+    try {
+      const checkout = await api<{ url?: string; granted?: boolean; amount_cents?: number }>("/v1/checkout/credits", { method: "POST", body: JSON.stringify({}) });
+      if (checkout.url) window.location.assign(checkout.url);
+      else if (checkout.granted) { await refresh(); setNotice(`$${((checkout.amount_cents || 0) / 100).toFixed(2)} added to your balance.`); }
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Could not start credit checkout."); }
+  }
+
   if (authState === "loading") {
     return <main className="beta-loading"><span>VOICEPRINT●</span><p>Opening your workspace…</p></main>;
   }
@@ -196,15 +204,15 @@ export function BetaWorkspace() {
       <aside className="beta-sidebar">
         <Link className="wordmark" href="/">VOICEPRINT<span className="wordmark-dot">●</span></Link>
         <nav aria-label="Workspace">
-          <button className={tab === "corpus" ? "active" : ""} onClick={() => setTab("corpus")}><span>01</span> Corpus</button>
-          <button className={tab === "models" ? "active" : ""} onClick={() => setTab("models")}><span>02</span> Models</button>
-          <button className={tab === "write" ? "active" : ""} onClick={() => setTab("write")}><span>03</span> Write</button>
-          <button className={tab === "api" ? "active" : ""} onClick={() => setTab("api")}><span>04</span> API</button>
+          <button className={tab === "corpus" ? "active" : ""} onClick={() => setTab("corpus")}>Corpus</button>
+          <button className={tab === "models" ? "active" : ""} onClick={() => setTab("models")}>Models</button>
+          <button className={tab === "write" ? "active" : ""} onClick={() => setTab("write")}>Write</button>
+          <button className={tab === "api" ? "active" : ""} onClick={() => setTab("api")}>API</button>
         </nav>
         <div className="beta-account">
-          <b>${(((session?.credits ?? 0)) / 100).toFixed(2)}</b>
-          <span>{session?.user.name || session?.user.email}</span>
-          <button className="beta-signout" onClick={signOut}>SIGN OUT</button>
+          <div className="beta-balance"><b>${(((session?.credits ?? 0)) / 100).toFixed(2)}</b><button className="beta-addcredits" onClick={() => void buyCredits()}>Add credits</button></div>
+          <span className="beta-who">{session?.user.name || session?.user.email}</span>
+          <button className="beta-signout" onClick={signOut}>Sign out</button>
         </div>
       </aside>
 
@@ -446,22 +454,6 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, busy]);
 
-  async function buyCredits() {
-    setBusy(true);
-    try {
-      const checkout = await api<{ url?: string; granted?: boolean; amount_cents?: number }>("/v1/checkout/credits", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      if (checkout.url) window.location.assign(checkout.url);
-      else if (checkout.granted) {
-        await onRefresh();
-        onNotice(`$${((checkout.amount_cents || 0) / 100).toFixed(2)} added to your balance.`);
-      }
-    } catch (error) { onNotice(error instanceof Error ? error.message : "Could not start credit checkout."); }
-    setBusy(false);
-  }
-
   async function requestDraft(input: DraftProposal) {
     setBusy(true);
     try {
@@ -516,10 +508,8 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
     }
   }
 
-  return <div className="workspace-view write-view">
-    <header className="workspace-header"><div><p className="eyebrow">03 / WRITE</p><h1>Chat it through.<br />Your voice out.</h1></div><p>Describe what you want written. Voiceprint drafts it in your voice; edit it on the right.</p></header>
-    <section className="credit-store"><div><span>BALANCE</span><b>${(credits / 100).toFixed(2)}</b></div><div><span>APPROX PAGES LEFT</span><b>~{Math.max(0, Math.floor(credits * 3 / 100))}</b></div><button onClick={() => void buyCredits()} disabled={busy}>ADD CREDITS →</button></section>
-    {!ready.length ? <div className="empty-work"><b>NO READY MODEL</b><p>Train a model first. We&rsquo;ll email you when it is ready.</p></div> : <div className="chat-composer">
+  return <div className="write-view">
+    {!ready.length ? <div className="empty-work"><b>No voice ready</b><p>Train a model first, or use the shared voice.</p></div> : <div className="chat-composer">
       <section className="chat-panel">
         <div className="chat-toolbar">
           <label>VOICE<select value={selectedModel} onChange={(event) => setModelId(event.target.value)}>{ready.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></label>
@@ -542,7 +532,7 @@ function WriteView({ models, credits, onRefresh, onNotice }: { models: Model[]; 
         <div className="draft-head"><span>{draft ? "DRAFT · EDITABLE" : "DRAFT"}</span><button type="button" onClick={() => draft && navigator.clipboard.writeText(draft)} disabled={!draft}>COPY</button></div>
         {draft
           ? <><textarea className="draft-editor" value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck /><small>{warning}</small></>
-          : <div className="draft-placeholder"><span>Aa</span><p>Your draft will appear here. Chat on the left to create one, then edit it here.</p></div>}
+          : <div className="draft-placeholder"><p>Your draft will appear here.</p></div>}
       </section>
     </div>}
   </div>;

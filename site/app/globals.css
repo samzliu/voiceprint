@@ -468,3 +468,23 @@ blockquote { margin: 0; font: 400 clamp(32px, 4.2vw, 58px)/1.1 var(--serif); let
 .beta-onboard { min-height: 100vh; padding: 42px clamp(24px, 5vw, 72px); background: var(--paper); }
 .beta-onboard .wordmark { display: inline-block; }
 .beta-onboard .onboarding { width: min(680px, 100%); margin: 8vh auto 0; padding: 0; }
+
+/* Writing-tool cleanup: calmer sidebar + editor-first Write, less "deck" chrome */
+.beta-sidebar nav { margin-top: 40px; gap: 2px; }
+.beta-sidebar nav button { padding: 10px 12px; border-bottom: 0; border-radius: 8px; gap: 0; color: #b8b6ad; font: 500 14px/1 var(--sans); letter-spacing: 0; }
+.beta-sidebar nav button.active { color: var(--paper); background: #2a2a25; }
+.beta-sidebar nav button:hover:not(.active) { color: var(--paper); background: #23231f; }
+.beta-account { font: 12px/1.4 var(--sans); gap: 10px; }
+.beta-balance { display: flex; align-items: baseline; gap: 12px; }
+.beta-account .beta-balance b { width: auto; padding: 0; background: none; color: var(--paper); font: 600 16px var(--sans); }
+.beta-addcredits { border: 0; padding: 0; background: none; color: var(--signal); font: 12px var(--sans); cursor: pointer; }
+.beta-addcredits:hover { text-decoration: underline; }
+.beta-who { color: #8f8e86; }
+.beta-signout { color: #8f8e86; font: 12px var(--sans); }
+
+.write-view { max-width: 1440px; margin: 0 auto; padding: 22px clamp(18px, 3vw, 40px) 26px; }
+.write-view .chat-composer { min-height: 82vh; border-radius: 12px; }
+.write-view .chat-log { max-height: 62vh; }
+.write-view .draft-editor { max-height: 66vh; }
+.write-view .draft-placeholder { padding: 64px 40px; }
+.write-view .draft-placeholder p { margin: 0; font: 15px var(--sans); color: #a3a299; }
