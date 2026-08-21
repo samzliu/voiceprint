@@ -643,3 +643,13 @@ textarea:focus, input:focus, select:focus { box-shadow: 0 0 0 3px rgba(120,118,1
 /* Override stale circular-button rule from the earlier box iteration */
 .tryit .tryit-send { display: inline-flex; align-items: center; gap: 7px; width: auto; height: auto; padding: 9px 18px; border-radius: 20px; font-size: 13px; white-space: nowrap; }
 .tryit .tryit-send span { font-size: 13px; }
+
+/* Calmer section headings (stop the word-per-line wrapping) */
+.section-header h2 { font-size: clamp(30px, 4vw, 46px); line-height: 1.08; letter-spacing: -.02em; }
+
+/* More air between the hero subhead and the try-it box */
+.hero .tryit { margin-top: 60px; }
+.hero-copy .dek { margin-top: 28px; }
+
+/* Eyebrows removed → let the heading use the full width (was a 190px grid column) */
+.section-header { display: block; grid-template-columns: none; margin-bottom: 30px; }

@@ -61,9 +61,8 @@ export default function Home() {
           <h2 id="how-title">Train your own writing model, no code needed</h2>
         </header>
         <p className="how-lede">
-          Paste a few pages you&rsquo;ve written. Voiceprint learns your voice
-          and keeps it consistent. No fine-tuning setup, no prompt engineering,
-          no data science.
+          Voiceprint can learn your voice from just a few pages. No need for
+          prompt engineering, data science, or post-training experience.
         </p>
         <ol className="steps">
           <li><b>1</b><h3>Bring your own writing</h3><p>Collect as little as a few thousand words.</p></li>
