@@ -653,3 +653,12 @@ textarea:focus, input:focus, select:focus { box-shadow: 0 0 0 3px rgba(120,118,1
 
 /* Eyebrows removed → let the heading use the full width (was a 190px grid column) */
 .section-header { display: block; grid-template-columns: none; margin-bottom: 30px; }
+
+/* More air under the hero subhead + borderless 1-2-3 steps */
+.hero .tryit { margin-top: 92px; }
+.steps, .steps li, .steps li:first-child { border: 0; }
+.steps li { padding-left: 0; padding-right: 40px; }
+
+/* Plainer 1-2-3 numerals (no circle box) */
+.steps b { border: 0; background: transparent; width: auto; height: auto; font: 600 13px var(--sans); color: var(--muted); }
+.steps h3 { margin-top: 18px; }
