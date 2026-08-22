@@ -72,8 +72,9 @@ base model into it, which takes a couple of minutes. Everything after that is se
 container stays warm. Say so, or the first wait reads as a hang.
 
 If they ask which base model: the default is fine. `train_voice` also takes any Hugging Face
-**base** model id; instruct and chat models are refused, because those already have a voice of
-their own and it isn't the user's.
+**instruct/chat** model id. The base has to carry a chat template — the adapter is trained and
+served through it, and that match is the whole technique. A pretrained base with no template is
+refused as soon as training starts, before any GPU time is spent.
 
 ---
 
@@ -151,8 +152,9 @@ in `notes` will be *invented* — confidently and plausibly. This is not a promp
 solve with a better instruction; it's inherent to the high-variance sampling that makes the prose
 read human. The model is trading accuracy for voice, on purpose.
 
-**Notes are material, not instructions.** This model cannot follow a directive. It is a base model
-completing a document, and every bullet you pass is *content it is writing up*. A note reading
+**Notes are material, not instructions.** This model cannot follow a directive. Despite the chat
+format, the adapter has been trained away from following instructions and towards writing prose,
+so every bullet you pass is *content it is writing up*. A note reading
 "do not mention any company" is not a rule it obeys — it is a line in the brief, and it makes the
 subject more likely to appear, not less. Never put constraints, meta-commentary, or stage
 directions in `notes`:

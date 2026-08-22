@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from voiceprint import engine
+from voiceprint import engine, registry
 
 
 def test_score_text_scores_the_exact_input(monkeypatch):
@@ -49,3 +49,42 @@ def test_edit_span_rejects_invalid_offsets(monkeypatch):
             pass
         else:
             raise AssertionError("invalid offsets must be rejected")
+
+
+def _voice(fmt):
+    return SimpleNamespace(name="sam", format=fmt, profile="profile", adapter_path="/voices/sam")
+
+
+def test_a_chat_format_voice_is_served():
+    assert engine.require_chat_format(_voice(registry.FORMAT_CHAT)).name == "sam"
+
+
+def test_a_document_format_voice_is_refused_before_it_reaches_the_gpu():
+    """The failure this prevents is the quiet one. A document-format adapter on
+    the instruct engine does not error — it returns fluent prose that has lost
+    the voice and fails detectors, which reads as the product being bad rather
+    than as a mismatch."""
+    try:
+        engine.require_chat_format(_voice(registry.FORMAT_DOCUMENT))
+    except engine.WrongFormat as error:
+        assert "retrain" in str(error).lower()
+        assert "voiceprint train" in str(error)
+    else:
+        raise AssertionError("a document-format voice must not be served by the instruct engine")
+
+
+def test_the_detector_gate_can_be_turned_off(monkeypatch):
+    """`--detector none` has to reach `best_of_n` as an actual None, not as the
+    string 'none' — a truthy string would silently re-enable the gate."""
+    captured = {}
+
+    monkeypatch.setattr(engine.scorers, "build", lambda name, profile: SimpleNamespace(score=len))
+    monkeypatch.setattr(
+        engine.selection,
+        "best_of_n",
+        lambda draw, rank, detect, cap: captured.setdefault("detect", detect)
+        or SimpleNamespace(text="t", style=0.0, alternates=[], p_human=1.0, draws=1, gated=False, soft_failed=False),
+    )
+
+    engine._run(_voice(registry.FORMAT_CHAT), None, "medium", 6, None, "stylometry", "none")
+    assert captured["detect"] is None

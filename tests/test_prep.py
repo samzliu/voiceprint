@@ -46,8 +46,21 @@ def test_a_chunk_without_usable_notes_still_teaches_continuation_and_rewrite():
     assert kinds == {"continue", "rewrite"}
 
 
+def test_a_continuation_pair_puts_the_head_in_the_assistant_turn():
+    """The model continues its own half-written answer. Putting the head in the
+    user turn instead would train it to quote the prompt back."""
+    pairs = {p.kind: p for p in pairs_for_chunk(chunk(), ["a note"], "bland version")}
+    head = pairs["continue"].prompt.prefill
+    assert head.strip()
+    assert BODY.startswith(head.strip())
+    assert head.strip() not in pairs["continue"].prompt.messages[0]["content"]
+    assert head + pairs["continue"].completion == BODY
+
+
 def test_write_and_rewrite_pairs_complete_to_the_authors_real_text():
     pairs = {p.kind: p for p in pairs_for_chunk(chunk(), ["a note"], "bland version")}
     assert pairs["write"].completion == BODY
     assert pairs["rewrite"].completion == BODY
-    assert "bland version" in pairs["rewrite"].prompt
+    # The rewrite pair has to *show* the model the text it is rewriting, so the
+    # degraded draft lands in the user turn rather than in notes about it.
+    assert "bland version" in pairs["rewrite"].prompt.messages[0]["content"]

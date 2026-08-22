@@ -55,6 +55,10 @@ def _register(record: dict, result: dict) -> Voice:
         words=record["words"],
         chunks=record["chunks"],
         pairs=result["pairs"],
+        # Stamped at registration rather than defaulted on the dataclass, so a
+        # record written by an older build stays honestly marked as document
+        # format instead of silently claiming to be servable.
+        format=registry.FORMAT_CHAT,
         training=record["training"],
         holdout=record["holdout"],
     )

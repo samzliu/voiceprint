@@ -24,7 +24,7 @@ def main() -> int:
     p_train.add_argument(
         "--model",
         default=models.DEFAULT_MODEL,
-        help=f"preset ({', '.join(models.MODEL_PRESETS)}) or any Hugging Face base-model id",
+        help=f"preset ({', '.join(models.MODEL_PRESETS)}) or any Hugging Face instruct-model id",
     )
     p_train.set_defaults(run=cmd_train)
 
@@ -49,24 +49,35 @@ def main() -> int:
     p_write.add_argument("--continue-from", help="file whose text the draft should continue")
     p_write.add_argument("--length", default="medium", choices=list(LENGTHS))
     p_write.add_argument("--candidates", type=int, default=DEFAULT_N)
-    p_write.add_argument("--temp", type=float, default=DEFAULT_TEMPERATURE)
+    p_write.add_argument(
+        "--temp", type=float, default=None, help=f"override the sampler (default {DEFAULT_TEMPERATURE})"
+    )
     p_write.add_argument("--voice")
-    p_write.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
+    p_write.add_argument("--scorer", default="stylometry", choices=list(scorers.SCORERS))
+    p_write.add_argument(
+        "--detector",
+        default=scorers.DEFAULT_DETECTOR,
+        choices=list(scorers.DETECTORS),
+        help="gate candidates on P(human); 'none' returns the first draw ungated",
+    )
     p_write.add_argument("--all", action="store_true", help="show every candidate with its score")
     p_write.set_defaults(run=cmd_write)
 
     p_rewrite = sub.add_parser("rewrite", help="say this in my voice (stdin or a file)")
     p_rewrite.add_argument("path", nargs="?", help="file to rewrite; omit to read stdin")
     p_rewrite.add_argument("--candidates", type=int, default=4)
-    p_rewrite.add_argument("--temp", type=float, default=DEFAULT_TEMPERATURE)
+    p_rewrite.add_argument("--temp", type=float, default=None)
     p_rewrite.add_argument("--voice")
-    p_rewrite.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
+    p_rewrite.add_argument("--scorer", default="stylometry", choices=list(scorers.SCORERS))
+    p_rewrite.add_argument(
+        "--detector", default=scorers.DEFAULT_DETECTOR, choices=list(scorers.DETECTORS)
+    )
     p_rewrite.set_defaults(run=cmd_rewrite)
 
     p_score = sub.add_parser("score", help="score the exact final text (stdin or a file)")
     p_score.add_argument("path", nargs="?", help="file to score; omit to read stdin")
     p_score.add_argument("--voice")
-    p_score.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
+    p_score.add_argument("--scorer", default="stylometry", choices=list(scorers.SCORERS))
     p_score.set_defaults(run=cmd_score)
 
     p_voices = sub.add_parser("voices", help="list trained voices")
@@ -87,7 +98,7 @@ def main() -> int:
     p_eval = sub.add_parser("eval", help="does it sound like you, and is it reciting?")
     p_eval.add_argument("voice", nargs="?")
     p_eval.add_argument("--samples", type=int, default=5)
-    p_eval.add_argument("--scorer", default="stylometry", choices=["stylometry", "pangram"])
+    p_eval.add_argument("--scorer", default="stylometry", choices=list(scorers.SCORERS))
     p_eval.set_defaults(run=cmd_eval)
 
     p_check = sub.add_parser("check", help="is everything set up?")
@@ -114,7 +125,8 @@ def main() -> int:
         return args.run(args)
     except (
         corpus.CorpusTooSmall,
-        models.NotABaseModel,
+        models.NotAnInstructModel,
+        engine.WrongFormat,
         registry.VoiceNotFound,
         remote.NotDeployed,
         FileNotFoundError,
@@ -135,6 +147,10 @@ def cmd_train(args) -> int:
     print(f"{words} words, {len(chunks)} chunks from {args.path}")
     if warning:
         print(f"warning: {warning}")
+
+    hint = models.base_model_warning(models.resolve(args.model))
+    if hint:
+        print(f"warning: {hint}")
 
     job_id = train.start(chunks, args.name, args.model)
     print(f"training '{args.name}' on {models.resolve(args.model)} — a few minutes. job {job_id}")
@@ -196,6 +212,7 @@ def cmd_write(args) -> int:
         n=args.candidates,
         temperature=args.temp,
         scorer_name=args.scorer,
+        detector_name=args.detector,
     )
 
     if args.all:
@@ -204,8 +221,26 @@ def cmd_write(args) -> int:
         return 0
 
     print(draft.text)
-    print(f"\n[{args.scorer} {draft.score:.3f}, best of {len(draft.alternates) + 1}]", file=sys.stderr)
+    print(_verdict(args, draft), file=sys.stderr)
+    if draft.soft_failed:
+        print(
+            "warning: no candidate cleared the detector. Change the notes and regenerate — "
+            "editing this text by hand will not help, and usually makes the score worse.",
+            file=sys.stderr,
+        )
     return 0
+
+
+def _verdict(args, draft) -> str:
+    """What the run cost and what the detector thought, on stderr so that piping
+    stdout to a file still gets clean prose."""
+    parts = [f"{args.scorer} {draft.score:.3f}"]
+    if draft.gated:
+        parts.append(f"p_human {draft.p_human:.3f}")
+        parts.append(f"{draft.draws} drawn")
+    else:
+        parts.append(f"best of {len(draft.alternates) + 1}")
+    return "\n[" + ", ".join(parts) + "]"
 
 
 def cmd_rewrite(args) -> int:
@@ -219,6 +254,7 @@ def cmd_rewrite(args) -> int:
             n=args.candidates,
             temperature=args.temp,
             scorer_name=args.scorer,
+            detector_name=args.detector,
         )
     )
     return 0
@@ -227,7 +263,7 @@ def cmd_rewrite(args) -> int:
 def cmd_score(args) -> int:
     text = Path(args.path).read_text(encoding="utf-8") if args.path else sys.stdin.read()
     score = engine.score_text(text, voice_name=args.voice, scorer_name=args.scorer)
-    label = "human probability" if args.scorer == "pangram" else "style match"
+    label = "human probability" if args.scorer in ("pangram", "binoculars") else "style match"
     print(f"{args.scorer} {score:.3f}  ({label}; exact input)")
     return 0
 
@@ -244,6 +280,8 @@ def cmd_voices(_args) -> int:
         print(
             f"{marker} {voice.name:<16} {models.label(voice.model):<12} {voice.words:>6} words  "
             f"{voice.pairs:>3} pairs  {voice.trained_at}"
+            # Only worth the column when it is the answer to "why did that fail".
+            + ("  [document format — retrain]" if voice.format != registry.FORMAT_CHAT else "")
         )
     if len(voices) > 1 and not default:
         print("\npick a default with:  voiceprint use <name>")
@@ -322,8 +360,8 @@ def cmd_models(_args) -> int:
     for preset, model in models.MODEL_PRESETS.items():
         default = "  (default)" if preset == models.DEFAULT_MODEL else ""
         print(f"  {preset:<12} {model}{default}")
-    print("\nOr pass any Hugging Face base-model id to --model.")
-    print("Base models only: instruct/chat models are refused, they already have a voice.")
+    print("\nOr pass any Hugging Face instruct/chat model id to --model. The base needs a chat")
+    print("template: Voiceprint trains and generates through it, and that match is the trick.")
     return 0
 
 
@@ -347,6 +385,10 @@ def cmd_eval(args) -> int:
             voice_name=voice.name,
             n=1,
             scorer_name=args.scorer,
+            # Ungated on purpose. Eval asks how the adapter writes on average;
+            # letting the detector throw candidates away would measure the
+            # filter instead, and bill for the redraws.
+            detector_name=None,
         )
         drafts.append(draft.text)
         print(".", end="", flush=True)

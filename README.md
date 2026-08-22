@@ -217,13 +217,28 @@ posts teach short-form rhythm. Avoid transcripts, heavily co-edited work, and ge
 
 ## How it works
 
-Voiceprint builds training pairs from your corpus and trains a LoRA adapter on a Hugging Face base
-model. At generation time it:
+Voiceprint builds training pairs from your corpus and trains a LoRA adapter on a Hugging Face
+instruct model. One rule drives the whole design: **train on human text in the format you generate
+in.** Each training pair is a chat turn — the user turn is an instruction, the assistant turn is a
+paragraph you actually wrote — and loss falls only on the assistant span. Generation then goes
+through the same chat template.
 
-1. Formats the brief and optional draft prefix as a plain document rather than a chat turn.
-2. Generates multiple candidates with high-temperature min-p sampling.
-3. Ranks the candidates by stylometric similarity to your corpus.
-4. Returns the highest-scoring draft.
+Both halves are load-bearing. An untrained instruct model asked for a paragraph is caught by
+detectors every time, because the assistant distribution it was tuned into *is* the fingerprint. An
+adapter trained on plain documents but prompted with the chat template fails too, for the mirror
+reason: it is being asked at inference for something it never saw. Matching them is the technique,
+which is why each voice records the format it was trained in and refuses to be served under the
+other one.
+
+At generation time it:
+
+1. Renders the brief and optional draft prefix through the base model's chat template.
+2. Draws a small batch of candidates and scores each with an AI detector.
+3. Returns the first draft that passes, drawing again only if none did (cap: 6).
+4. Ranks by stylometric similarity when more than one candidate passes.
+
+Because a trained adapter usually passes on the first or second candidate, the common case costs
+one batch rather than a fixed eight generations.
 
 In tests, the style score flattened after roughly 700 words. The base model already knows how to
 write; the adapter is learning the distribution of choices that makes the writing sound like you.
@@ -235,7 +250,16 @@ Useful controls:
 - `--temp` controls variance. Lower values are more conservative; higher values vary more and make
   more mistakes.
 - `--voice NAME` selects a trained voice.
+- `--detector` chooses the gate: `binoculars` (default, self-hosted, free per call), `pangram`
+  (requires `PANGRAM_API_KEY`), or `none` to return the first draw ungated.
 - `--scorer pangram` uses the Pangram ranker and requires `PANGRAM_API_KEY`.
+
+`write` reports `p_human` and how many candidates it drew on stderr, so piping stdout to a file
+still gets clean prose. If nothing clears the detector it returns the closest candidate and says
+so. When that happens, change the notes and regenerate — do not edit the prose by hand. Editing
+finished output, whether by a human or an AI polish pass, reliably re-triggers detectors on the
+whole passage. To change one sentence, use `edit_span`, which has the adapter write the
+replacement's final words.
 
 ## Evaluate the result
 
@@ -261,23 +285,31 @@ voiceprint write --voice work "..."
 voiceprint delete old-voice
 ```
 
-Two base-model presets have been tested:
+Two base-model presets:
 
-| Preset | Model | Result |
+| Preset | Model | Notes |
 | --- | --- | --- |
-| `qwen14b` | `Qwen/Qwen2.5-14B` | Default; 0.548 style, 1.000 novelty |
-| `qwen7b` | `Qwen/Qwen2.5-7B` | Smaller; 0.541 style, 1.000 novelty |
+| `qwen14b` | `Qwen/Qwen2.5-14B-Instruct` | Default; the cheapest base that passes |
+| `mistral24b` | `mistralai/Mistral-Small-24B-Instruct-2501` | Better prose, Apache-2.0 |
 
-Use a preset or another Hugging Face base-model ID:
+Use a preset or another Hugging Face instruct-model ID:
 
 ```sh
-voiceprint train ~/writing --name me --model qwen7b
-voiceprint train ~/writing --name me --model someone/Their-Base-7B
+voiceprint train ~/writing --name me --model mistral24b
+voiceprint train ~/writing --name me --model someone/Their-Model-7B-Instruct
 ```
 
-Instruct and chat models are rejected. Voices that use the same base model share a serving
-container. Training and serving default to an A100-80GB; change `TRAIN_GPU` and `SERVE_GPU` in
-`voiceprint/modal_app.py` to use different hardware.
+The base must carry a chat template, since the adapter is both trained and served through it.
+Training stops immediately if it does not, before any GPU time is spent. Serving is pinned to one
+base: a LoRA adapter is a delta on specific weights, so a second base means a second resident
+container, not a second adapter. Training and serving default to an A100-80GB and the detector to
+an L40S; change `TRAIN_GPU`, `SERVE_GPU` and `DETECTOR_GPU` in `voiceprint/modal_app.py` to use
+different hardware.
+
+> **Voices trained before the chat-format change need retraining.** They were trained as plain
+> documents on a pretrained base and cannot be served by the instruct engine. `voiceprint voices`
+> marks them, and generation refuses them with a retrain hint rather than returning prose that has
+> quietly lost the voice.
 
 ## Privacy, accuracy, and cost
 

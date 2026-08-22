@@ -14,6 +14,13 @@ from pathlib import Path
 
 from voiceprint.stylometry import Profile
 
+# Which prompt format a voice was trained in. An adapter only works with the
+# format it saw during training, and it fails *quietly* when mismatched — the
+# prose just drifts back towards ordinary AI writing — so this is recorded per
+# voice rather than assumed globally.
+FORMAT_CHAT = "chat"
+FORMAT_DOCUMENT = "document"
+
 HOME = Path.home() / ".voiceprint"
 VOICES_DIR = HOME / "voices"
 CONFIG = HOME / "config.json"
@@ -28,6 +35,11 @@ class Voice:
     words: int
     chunks: int
     pairs: int
+    # Absent from records written before the chat port. Those voices were
+    # trained as plain documents on a pretrained base and cannot be served by
+    # the instruct engine at all, so defaulting to "document" is what lets
+    # `engine` tell the user to retrain instead of handing back junk.
+    format: str = FORMAT_DOCUMENT
     # Kept for `voiceprint eval`: `training` is what novelty is measured against
     # (did it recite?), `holdout` is unseen real writing by the author and gives
     # the style score something honest to be compared to.
@@ -44,6 +56,7 @@ class Voice:
             "words": self.words,
             "chunks": self.chunks,
             "pairs": self.pairs,
+            "format": self.format,
             "training": self.training,
             "holdout": self.holdout,
             "trained_at": self.trained_at,

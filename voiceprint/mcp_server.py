@@ -133,18 +133,21 @@ def write_in_my_style(
 
     notes: the brief, as bullets — the *material* of the passage, never instructions about it.
         Put EVERY fact, name, number and URL you want in the output here; anything absent will be
-        invented. But this is a base model completing a document, not an assistant: a bullet like
-        "do not mention any companies" is content it writes up, not a rule it follows, and makes
-        the thing more likely to appear. Constraints belong in your choice of facts, not in notes.
+        invented. Despite the chat format, this adapter has been trained away from following
+        instructions and towards writing prose: a bullet like "do not mention any companies" is
+        content it writes up, not a rule it obeys, and makes the thing more likely to appear.
+        Constraints belong in your choice of facts, not in notes.
         If a passage comes back wrong twice, fix the notes or move on — do not loop.
     preceding_text: prose the passage should continue from. For a continuation, this is the user's
         own text. For section N of a long piece, pass the last paragraph or two of section N-1.
         Supplying it is what keeps sections connected and stops them repeating each other.
     length: "short" (a reply or a post), "medium" (a section), "long" (a whole piece). This is a
         trained control, so use it rather than asking for a word count in the notes.
-    candidates: how many drafts to sample before returning the best-ranked one.
+    candidates: the *cap* on drafts sampled, not the number drawn. Each draft is checked by an
+        AI detector and the first one that passes is returned, so the usual cost is one or two.
 
-    Returns raw adapter prose plus its style score. It has not been fact-checked or edited.
+    Returns raw adapter prose, its style score, and the detector's reading of the exact text
+    returned. It has not been fact-checked or edited.
     """
     draft = engine.write(
         notes=notes,
@@ -152,14 +155,19 @@ def write_in_my_style(
         length=length,
         voice_name=voice,
         n=candidates,
-        temperature=1.5,
     )
     return {
         "text": draft.text,
         "style_score": round(draft.score, 3),
-        "candidates": candidates,
+        "p_human": round(draft.p_human, 3),
+        "candidates_drawn": draft.draws,
         "mode": "raw",
-        "warning": "raw adapter output; verify facts and grammar before publishing",
+        "warning": (
+            "no candidate passed the detector; this is the closest. Change the notes and call "
+            "again — do NOT edit this text to improve it, which reliably makes it worse."
+            if draft.soft_failed
+            else "raw adapter output; verify facts and grammar before publishing"
+        ),
         "final_writer": "voiceprint",
         "finalized_by_adapter": True,
     }
@@ -224,9 +232,10 @@ def score_final_text(
 ) -> dict:
     """Score the exact final artifact after all edits.
 
-    scorer: "stylometry" measures similarity to the user's corpus locally. "pangram" returns
-        Pangram's estimated human probability and requires PANGRAM_API_KEY. Pangram is one AI
-        detector, not a guarantee about every detector.
+    scorer: "stylometry" measures similarity to the user's corpus locally. "binoculars" returns
+        the self-hosted detector's human probability — the same one that gates generation.
+        "pangram" returns Pangram's estimate and requires PANGRAM_API_KEY. Either detector is
+        one detector, not a guarantee about every detector.
 
     Never reuse a raw candidate's score for an edited version. Pass the complete text that will
     actually be delivered or published.
@@ -235,7 +244,9 @@ def score_final_text(
     return {
         "scorer": scorer,
         "score": round(value, 3),
-        "meaning": "human_probability" if scorer == "pangram" else "style_similarity",
+        "meaning": (
+            "human_probability" if scorer in ("pangram", "binoculars") else "style_similarity"
+        ),
         "artifact": "exact_input",
     }
 
@@ -246,7 +257,8 @@ def train_voice(path: str, name: str, model: str = models.DEFAULT_MODEL) -> dict
 
     Takes several minutes, so this returns a job_id immediately — poll check_training with it.
     Needs ~1-2k words of prose the user actually wrote; it refuses below 300 words.
-    model: a preset name or any Hugging Face *base* model id. Instruct/chat models are refused.
+    model: a preset name or any Hugging Face *instruct/chat* model id. The base must have a chat
+        template — the adapter is trained and served through it, and that match is the technique.
     """
     return {
         "job_id": train.spawn(path, name, model),

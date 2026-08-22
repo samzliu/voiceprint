@@ -33,12 +33,12 @@ def _hosted_chunks(words=1_000):
 
 def test_hosted_training_recomputes_word_counts():
     name, chunks, model = parse_hosted_training(
-        {"name": "model_abc", "chunks": _hosted_chunks(), "model": "Qwen/Qwen2.5-14B"}
+        {"name": "model_abc", "chunks": _hosted_chunks(), "model": "Qwen/Qwen2.5-14B-Instruct"}
     )
     assert name == "model_abc"
     assert chunks[0]["words"] == 1_000
     assert chunks[0]["length"] == "long"
-    assert model == "Qwen/Qwen2.5-14B"
+    assert model == "Qwen/Qwen2.5-14B-Instruct"
 
 
 def test_hosted_training_blocks_too_few_real_words():
@@ -78,7 +78,7 @@ def test_hosted_generation_requires_adapter_owned_path_shape():
         parse_hosted_generation(
             {
                 "adapter_path": "/voices/../../other",
-                "provider_model": "Qwen/Qwen2.5-14B",
+                "provider_model": "Qwen/Qwen2.5-14B-Instruct",
                 "notes": ["A factual note"],
                 "style_profile": {},
             }
@@ -89,7 +89,7 @@ def test_hosted_generation_accepts_bounded_write_request():
     request = parse_hosted_generation(
         {
             "adapter_path": "/voices/model_abc",
-            "provider_model": "Qwen/Qwen2.5-14B",
+            "provider_model": "Qwen/Qwen2.5-14B-Instruct",
             "operation": "write",
             "length": "medium",
             "notes": ["A factual note"],
@@ -105,7 +105,7 @@ def test_hosted_generation_accepts_voiceprint_native_revoice():
     request = parse_hosted_generation(
         {
             "adapter_path": "/voices/model_abc",
-            "provider_model": "Qwen/Qwen2.5-14B",
+            "provider_model": "Qwen/Qwen2.5-14B-Instruct",
             "operation": "revoice",
             "text": "A private correction draft.",
             "style_profile": {"profile": "placeholder"},
@@ -122,7 +122,7 @@ def test_hosted_generation_accepts_planned_span_edit():
     request = parse_hosted_generation(
         {
             "adapter_path": "/voices/model_abc",
-            "provider_model": "Qwen/Qwen2.5-14B",
+            "provider_model": "Qwen/Qwen2.5-14B-Instruct",
             "operation": "edit_span",
             "text": text,
             "selection_start": start,
@@ -140,7 +140,7 @@ def test_hosted_generation_preserves_server_split_context_for_unicode_offsets():
     request = parse_hosted_generation(
         {
             "adapter_path": "/voices/model_abc",
-            "provider_model": "Qwen/Qwen2.5-14B",
+            "provider_model": "Qwen/Qwen2.5-14B-Instruct",
             "operation": "edit_span",
             "text": "Before 😀 old after",
             "selection_start": 10,
@@ -160,7 +160,7 @@ def test_hosted_generation_rejects_unplanned_span_edit():
         parse_hosted_generation(
             {
                 "adapter_path": "/voices/model_abc",
-                "provider_model": "Qwen/Qwen2.5-14B",
+                "provider_model": "Qwen/Qwen2.5-14B-Instruct",
                 "operation": "edit_span",
                 "text": "Replace this.",
                 "selection_start": 0,

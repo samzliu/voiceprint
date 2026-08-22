@@ -17,13 +17,17 @@ VOICES_VOLUME = "voiceprint-voices"
 CACHE_VOLUME = "voiceprint-cache"
 
 PREP_MODEL = "Qwen/Qwen2.5-7B-Instruct"
-PUBLIC_DEMO_MODEL = "Qwen/Qwen2.5-14B"
+PUBLIC_DEMO_MODEL = "Qwen/Qwen2.5-14B-Instruct"
 PUBLIC_DEMO_VOICE = "default"
 
 # Fits every supported base model in bf16 with room for a KV cache. If you ever
 # want a base too big for 80GB, change this and redeploy.
 TRAIN_GPU = "A100-80GB"
 SERVE_GPU = "A100-80GB"
+# The detector pair is two 7B models in bf16, about 28GB — it does not need, and
+# should not be billed at, the rate of the box serving the 14B. It runs in its
+# own container so the writer's KV cache keeps the whole A100.
+DETECTOR_GPU = "L40S"
 
 LORA_RANK = 16
 LORA_ALPHA = 32
@@ -62,6 +66,13 @@ serve_image = (
     .add_local_python_source("voiceprint")
 )
 
+detector_image = _base_image.pip_install(
+    "torch==2.13.0",
+    "transformers==4.57.6",
+    "accelerate>=1.0",
+    "huggingface_hub",
+).add_local_python_source("voiceprint")
+
 web_image = (
     modal.Image.debian_slim(python_version="3.12")
     .pip_install("fastapi[standard]", "numpy>=1.26")
@@ -88,7 +99,9 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     from voiceprint.corpus import Chunk
+    from voiceprint.models import NotAnInstructModel
     from voiceprint.prep import degrade_request, notes_request, pairs_for_chunk, parse_notes
+    from voiceprint.scaffold import render
 
     started = time.time()
     restored = [Chunk(**chunk) for chunk in chunks]
@@ -146,9 +159,24 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
 
     print(f"[train] {model}")
     tokenizer = AutoTokenizer.from_pretrained(model)
+    # The authoritative instruct check, made before a single weight is loaded.
+    # Everything downstream renders through this template; without one there is
+    # no format to match and the run would burn GPU minutes to produce an
+    # adapter that cannot be served.
+    if not getattr(tokenizer, "chat_template", None):
+        raise NotAnInstructModel(
+            f"{model} has no chat template, so it is a pretrained base model rather than an "
+            f"instruct/chat one. Voiceprint trains and generates through the chat template — "
+            f"try the instruct version of this model."
+        )
     network = AutoModelForCausalLM.from_pretrained(
         model, torch_dtype=torch.bfloat16, device_map="cuda"
     )
+    # Note for anyone adding a sanity generation to this function later:
+    # `gradient_checkpointing_enable` sets `use_cache=False`, and generating
+    # without the KV cache is roughly 10x slower. Call
+    # `gradient_checkpointing_disable()` and set `config.use_cache = True`
+    # first. Nothing generates from this model today, so it is left on.
     network.gradient_checkpointing_enable()
     network.enable_input_require_grads()
     network = get_peft_model(
@@ -163,17 +191,33 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     )
     network.print_trainable_parameters()
 
+    # The law this project rests on: train on human text in the format we
+    # generate in. `render` is the same function generation calls, so the prefix
+    # below is byte-identical to what the adapter will see in production.
+    #
+    # Prefix and completion are tokenized separately rather than by templating
+    # the assistant turn in one pass. It costs a possible token merge at the
+    # seam, and buys the guarantee that the tokens we mask are exactly the
+    # tokens generation will send — which is the property that actually matters.
+    #
+    # add_special_tokens=False on both: the chat template already emits whatever
+    # BOS the model wants, and a second one is a prefix generation never sees.
     examples = []
     for pair in pairs:
-        prompt_ids = tokenizer(pair.prompt, add_special_tokens=False).input_ids
+        prompt_ids = tokenizer(render(tokenizer, pair.prompt), add_special_tokens=False).input_ids
         completion_ids = tokenizer(pair.completion, add_special_tokens=False).input_ids
+        # The template's own end-of-turn token, which for every chat model we
+        # support is its EOS. This is what teaches the adapter to stop, and it
+        # is why the chat arm needs almost no stop sequences at generation time.
         completion_ids = completion_ids + [tokenizer.eos_token_id]
         if len(prompt_ids) + len(completion_ids) > MAX_SEQ_LEN:
             continue
         examples.append(
             {
                 "input_ids": prompt_ids + completion_ids,
-                # Loss on the body only. The prompt is scaffolding, not the voice.
+                # Loss on the assistant span only. Masking the prompt is
+                # load-bearing, not an optimisation: train on the instruction
+                # too and the adapter learns to write instructions.
                 "labels": [-100] * len(prompt_ids) + completion_ids,
             }
         )
@@ -236,10 +280,16 @@ def train_voice(name: str, chunks: list[dict], model: str) -> dict:
     max_containers=1,
 )
 class Writer:
-    """One resident base model, adapters swapped per request.
+    """One resident instruct model, adapters swapped per request.
 
     This is the unit-economics shape from the research: the expensive thing is
     the base weights, and every voice is a ~140MB adapter hot-loaded onto them.
+
+    The engine is pinned to one base on purpose. A LoRA adapter is a delta on
+    specific weights, so an adapter trained on Qwen2.5-14B-Instruct cannot be
+    loaded onto any other base — supporting a second one means a second resident
+    container, not a second `lora_request`. Anything trained against a different
+    base needs its own deployment.
     """
 
     @modal.enter()
@@ -258,27 +308,130 @@ class Writer:
     def generate(
         self,
         adapter_path: str,
-        prompt: str,
+        prompt: dict,
         n: int,
-        temperature: float,
-        min_p: float,
+        sampling: dict,
         max_tokens: int,
         stop: list[str],
-    ) -> list[str]:
+    ) -> list[dict]:
+        """`prompt` is a serialised `scaffold.Prompt`, rendered here.
+
+        Rendering happens on this side rather than in the caller because it
+        needs the base model's tokenizer, and because it must be the same
+        `render` training used. The caller ships structure; the format is
+        decided in exactly one place.
+        """
         from vllm import SamplingParams
         from vllm.lora.request import LoRARequest
+
+        from voiceprint.scaffold import Prompt, render
 
         voices_volume.reload()
         name = adapter_path.rstrip("/").split("/")[-1]
         request = LoRARequest(name, abs(hash(name)) % 1_000_000 + 1, adapter_path)
+        text = render(self.llm.get_tokenizer(), Prompt.from_dict(prompt))
         params = SamplingParams(
-            n=n, temperature=temperature, min_p=min_p, max_tokens=max_tokens, stop=stop
+            n=n,
+            temperature=sampling["temperature"],
+            top_p=sampling.get("top_p", 1.0),
+            min_p=sampling.get("min_p", 0.0),
+            repetition_penalty=sampling.get("repetition_penalty", 1.0),
+            max_tokens=max_tokens,
+            stop=stop,
         )
-        result = self.llm.generate([prompt], params, lora_request=request)[0]
+        result = self.llm.generate([text], params, lora_request=request)[0]
         return [
             {"text": output.text.strip(), "finish_reason": output.finish_reason}
             for output in result.outputs
         ]
+
+
+@app.cls(
+    image=detector_image,
+    gpu=DETECTOR_GPU,
+    volumes=VOLUMES,
+    scaledown_window=300,
+    timeout=600,
+    max_containers=1,
+)
+class Detector:
+    """Binoculars, resident, so the best-of-N loop can afford to ask it.
+
+    Idles down faster than the writer: it is only ever called in the middle of a
+    generation, so if the writer has gone cold this has too.
+    """
+
+    @modal.enter()
+    def start(self):
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        from voiceprint.binoculars import OBSERVER_MODEL, PERFORMER_MODEL
+
+        # One tokenizer for both. The pair has to share a vocabulary or the two
+        # distributions are not comparable position by position and the ratio
+        # is meaningless.
+        self.tokenizer = AutoTokenizer.from_pretrained(OBSERVER_MODEL)
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.observer = AutoModelForCausalLM.from_pretrained(
+            OBSERVER_MODEL, torch_dtype=torch.bfloat16, device_map="cuda"
+        ).eval()
+        self.performer = AutoModelForCausalLM.from_pretrained(
+            PERFORMER_MODEL, torch_dtype=torch.bfloat16, device_map="cuda"
+        ).eval()
+
+    @modal.method()
+    def read(self, texts: list[str]) -> list[dict]:
+        from voiceprint.binoculars import score_text
+
+        return [
+            score_text(text, self.tokenizer, self.observer, self.performer).to_dict()
+            for text in texts
+        ]
+
+
+
+def _select(adapter_path: str, prompt, length: str, profile=None, sampler: str | None = None):
+    """One generation, gated by the detector and ranked by style.
+
+    Both the public demo and the hosted API funnel through here so that a change
+    to the selection policy cannot apply to one and not the other. `profile` is
+    optional: the demo has no per-author style profile to rank against, so it
+    ranks flat and leans entirely on the detector.
+    """
+    from voiceprint import selection
+    from voiceprint.scaffold import DEFAULT_SAMPLER, MAX_TOKENS, SAMPLERS, stop_for, trim_to_sentence
+    from voiceprint.stylometry import score
+
+    sampling = SAMPLERS[sampler or DEFAULT_SAMPLER]
+
+    def draw(count: int) -> list[str]:
+        candidates = Writer().generate.remote(
+            adapter_path=adapter_path,
+            prompt=prompt.to_dict(),
+            n=count,
+            sampling=sampling,
+            max_tokens=MAX_TOKENS[length],
+            stop=stop_for(length),
+        )
+        return [
+            trim_to_sentence(candidate["text"])
+            if candidate["finish_reason"] == "length"
+            else candidate["text"].strip()
+            for candidate in candidates
+            if candidate.get("text", "").strip()
+        ]
+
+    def rank(text: str) -> float:
+        return score(profile, text) if profile else 0.0
+
+    def detect(texts: list[str]):
+        from voiceprint.binoculars import Reading
+
+        return [Reading.from_dict(r) for r in Detector().read.remote(texts)]
+
+    return selection.best_of_n(draw, rank, detect=detect)
 
 
 def parse_demo_brief(value: object) -> list[str]:
@@ -304,13 +457,7 @@ def parse_demo_brief(value: object) -> list[str]:
 
 
 def _run_demo_job(item: dict) -> dict:
-    from voiceprint.scaffold import (
-        DEFAULT_MIN_P,
-        DEFAULT_TEMPERATURE,
-        build_write_prompt,
-        stop_for,
-        trim_to_sentence,
-    )
+    from voiceprint.scaffold import build_write_prompt
 
     notes = parse_demo_brief(item.get("brief"))
 
@@ -318,26 +465,19 @@ def _run_demo_job(item: dict) -> dict:
     if length not in {"short", "medium"}:
         raise ValueError("length must be short or medium")
 
-    prompt = build_write_prompt(notes, length)
-    results = Writer().generate.remote(
+    chosen = _select(
         adapter_path=f"/voices/{PUBLIC_DEMO_VOICE}",
-        prompt=prompt,
-        n=2,
-        temperature=DEFAULT_TEMPERATURE,
-        min_p=DEFAULT_MIN_P,
-        max_tokens=200 if length == "short" else 600,
-        stop=stop_for(length),
+        prompt=build_write_prompt(notes, length),
+        length=length,
     )
-    drafts = [
-        trim_to_sentence(result["text"])
-        if result["finish_reason"] == "length"
-        else result["text"]
-        for result in results
-        if result["text"].strip()
-    ]
-    if not drafts:
-        raise RuntimeError("the model returned no draft")
-    return {"drafts": drafts, "voice": PUBLIC_DEMO_VOICE, "length": length}
+    return {
+        "drafts": [chosen.text] + [c.text for c in chosen.alternates],
+        "voice": PUBLIC_DEMO_VOICE,
+        "length": length,
+        "p_human": round(chosen.p_human, 4),
+        "draws": chosen.draws,
+        "soft_failed": chosen.soft_failed,
+    }
 
 
 @app.function(image=web_image, timeout=900, max_containers=2)
@@ -583,16 +723,8 @@ def hosted_train_result(item: dict):
 
 @app.function(image=web_image, timeout=1000, max_containers=8)
 def hosted_generate_job(item: dict) -> dict:
-    from voiceprint.scaffold import (
-        DEFAULT_MIN_P,
-        DEFAULT_TEMPERATURE,
-        MAX_TOKENS,
-        build_rewrite_prompt,
-        build_write_prompt,
-        stop_for,
-        trim_to_sentence,
-    )
-    from voiceprint.stylometry import Profile, score
+    from voiceprint.scaffold import build_rewrite_prompt, build_write_prompt
+    from voiceprint.stylometry import Profile
 
     request = parse_hosted_generation(item)
     rewrite_source = (
@@ -609,39 +741,35 @@ def hosted_generate_job(item: dict) -> dict:
             preceding_text=request["preceding_text"] if request["operation"] == "continue" else "",
         )
     )
-    candidates = Writer().generate.remote(
+    raw_profile = request.get("style_profile")
+    chosen = _select(
         adapter_path=request["adapter_path"],
         prompt=prompt,
-        n=8,
-        temperature=DEFAULT_TEMPERATURE,
-        min_p=DEFAULT_MIN_P,
-        max_tokens=MAX_TOKENS[request["length"]],
-        stop=stop_for(request["length"]),
+        length=request["length"],
+        profile=Profile.from_dict(raw_profile) if raw_profile else None,
     )
-    raw_profile = request.get("style_profile")
-    texts = [
-        trim_to_sentence(candidate["text"])
-        if candidate["finish_reason"] == "length"
-        else candidate["text"].strip()
-        for candidate in candidates
-        if candidate.get("text", "").strip()
-    ]
-    if not texts:
-        raise RuntimeError("the model returned no draft")
+
+    drafts = [chosen.text] + [candidate.text for candidate in chosen.alternates]
+    scores = [chosen.style] + [candidate.style for candidate in chosen.alternates]
     if request["operation"] == "edit_span":
-        texts = [f'{request["text_before"]}{text}{request["text_after"]}' for text in texts]
-    if raw_profile:
-        profile = Profile.from_dict(raw_profile)
-        ranked = sorted(((text, score(profile, text)) for text in texts), key=lambda pair: -pair[1])
-    else:
-        ranked = [(text, 0.0) for text in texts]
+        # Splice only after selection. The detector has to read the replacement
+        # on its own: scoring it inside the surrounding text would let a long,
+        # already-human document carry a machine-sounding insert past the gate.
+        drafts = [f'{request["text_before"]}{text}{request["text_after"]}' for text in drafts]
+
     return {
-        "drafts": [text for text, _value in ranked],
-        "style_scores": [round(value, 4) for _text, value in ranked],
+        "drafts": drafts,
+        "style_scores": [round(value, 4) for value in scores],
+        "p_human": round(chosen.p_human, 4),
+        "draws": chosen.draws,
+        "soft_failed": chosen.soft_failed,
         "mode": request["mode"],
         "operation": request["operation"],
         "warning": (
-            "Voiceprint wrote the final edited text; verify facts and re-score this exact artifact."
+            "No candidate cleared the detector; this is the closest of "
+            f"{chosen.draws}. Rewrite the input and regenerate rather than editing this text."
+            if chosen.soft_failed
+            else "Voiceprint wrote the final edited text; verify facts and re-score this exact artifact."
             if request["operation"] in {"rewrite", "revoice", "edit_span"} or request["mode"] == "edited"
             else "Raw adapter output; verify facts and grammar."
         ),

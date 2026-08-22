@@ -116,8 +116,17 @@ def trainer():
     return _lookup(lambda: modal.Function.from_name(APP_NAME, "train_voice"))
 
 
-def writer(model: str):
-    return _lookup(lambda: modal.Cls.from_name(APP_NAME, "Writer"))(model=model)
+def writer():
+    """The serving container. Takes no model argument: the engine is pinned to
+    one instruct base, because a LoRA adapter is a delta on specific weights and
+    cannot be moved to a different one. See `modal_app.Writer`."""
+    return _lookup(lambda: modal.Cls.from_name(APP_NAME, "Writer"))()
+
+
+def detector():
+    """The Binoculars container. Separate from the writer so its two 7B models
+    are not competing with the writer's KV cache for the same GPU."""
+    return _lookup(lambda: modal.Cls.from_name(APP_NAME, "Detector"))()
 
 
 def job_result(job_id: str) -> dict | None:

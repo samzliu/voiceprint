@@ -43,7 +43,7 @@ const MAX_TOPUP_CENTS = 100_000;            // $1,000 sliding-scale ceiling (saf
 const SHARED_MODEL_ID = "shared";
 const SHARED_MODEL_NAME = "Voiceprint default";
 const SHARED_ADAPTER_PATH = "/voices/default";
-const SHARED_PROVIDER_MODEL = "Qwen/Qwen2.5-14B";
+const SHARED_PROVIDER_MODEL = "Qwen/Qwen2.5-14B-Instruct";
 
 // Cost of a generation, in cents, computed from the produced text. Metering
 // happens on the FINAL draft at completion, so users pay only for what the
@@ -525,7 +525,7 @@ async function handleTraining(request: Request, env: AppEnv, user: User): Promis
     const upstream = await callModal(env.HOSTED_TRAIN_ENDPOINT, env, {
       name: modelId,
       chunks,
-      model: "Qwen/Qwen2.5-14B",
+      model: SHARED_PROVIDER_MODEL,
       job_id: jobId,
       ...(callbackUrl ? { callback_url: callbackUrl, callback_secret: env.PROVIDER_CALLBACK_SECRET } : {}),
     });
@@ -540,8 +540,8 @@ async function handleTraining(request: Request, env: AppEnv, user: User): Promis
 
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO models (id, owner_id, revision_id, name, status, provider, provider_model, adapter_path, trained_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'modal', 'Qwen/Qwen2.5-14B', ?, ?, ?, ?)",
-    ).bind(modelId, user.id, revisionId, name, modelStatus, modelStatus === "ready" ? `/voices/${modelId}` : null, modelStatus === "ready" ? timestamp : null, timestamp, timestamp),
+      "INSERT INTO models (id, owner_id, revision_id, name, status, provider, provider_model, adapter_path, trained_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'modal', ?, ?, ?, ?, ?)",
+    ).bind(modelId, user.id, revisionId, name, modelStatus, SHARED_PROVIDER_MODEL, modelStatus === "ready" ? `/voices/${modelId}` : null, modelStatus === "ready" ? timestamp : null, timestamp, timestamp),
     env.DB.prepare(
       "INSERT INTO jobs (id, owner_id, kind, status, resource_id, provider_job_id, request, idempotency_key, created_at, updated_at) VALUES (?, ?, 'training', ?, ?, ?, ?, ?, ?, ?)",
     ).bind(jobId, user.id, modelStatus === "ready" ? "completed" : "queued", modelId, providerJobId, JSON.stringify({ revision_id: revisionId, name }), idempotencyKey, timestamp, timestamp),

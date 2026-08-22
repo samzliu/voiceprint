@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass
 
 from voiceprint.corpus import Chunk
-from voiceprint.scaffold import build_rewrite_prompt, build_write_prompt
+from voiceprint.scaffold import Prompt, build_rewrite_prompt, build_write_prompt
 
 NOTES_INSTRUCTION = """Read the passage. Write 3 to 6 terse bullet notes that a writer could use to \
 reconstruct it from scratch: the claims it makes, the specifics it names, the order it moves in. \
@@ -47,7 +47,11 @@ _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 @dataclass(frozen=True)
 class Pair:
-    prompt: str
+    """One training example: what the model is shown, and the real human words
+    it should produce. `prompt` is a `Prompt`, not a string — the string only
+    exists once the base model's tokenizer renders it, GPU-side."""
+
+    prompt: Prompt
     completion: str
     kind: str
 

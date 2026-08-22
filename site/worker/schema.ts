@@ -6,7 +6,7 @@ export const APP_SCHEMA = [
   `CREATE INDEX IF NOT EXISTS idx_corpus_items_corpus ON corpus_items(corpus_id, created_at)`,
   `CREATE TABLE IF NOT EXISTS corpus_revisions (id TEXT PRIMARY KEY, corpus_id TEXT NOT NULL, owner_id TEXT NOT NULL, checksum TEXT NOT NULL, usable_words INTEGER NOT NULL, snapshot_key TEXT NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_corpus_revisions_checksum ON corpus_revisions(owner_id, corpus_id, checksum)`,
-  `CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL DEFAULT 'modal', provider_model TEXT NOT NULL DEFAULT 'Qwen/Qwen2.5-14B', adapter_path TEXT, style_profile TEXT, trained_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS models (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, revision_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', provider TEXT NOT NULL DEFAULT 'modal', provider_model TEXT NOT NULL DEFAULT 'Qwen/Qwen2.5-14B-Instruct', adapter_path TEXT, style_profile TEXT, trained_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_models_owner_updated ON models(owner_id, updated_at)`,
   `CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', resource_id TEXT, provider_job_id TEXT, request TEXT, result TEXT, error TEXT, idempotency_key TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_owner_updated ON jobs(owner_id, updated_at)`,

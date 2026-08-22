@@ -85,7 +85,7 @@ export const models = sqliteTable(
     name: text("name").notNull(),
     status: text("status").notNull().default("queued"),
     provider: text("provider").notNull().default("modal"),
-    providerModel: text("provider_model").notNull().default("Qwen/Qwen2.5-14B"),
+    providerModel: text("provider_model").notNull().default("Qwen/Qwen2.5-14B-Instruct"),
     adapterPath: text("adapter_path"),
     styleProfile: text("style_profile"),
     trainedAt: text("trained_at"),
